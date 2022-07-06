@@ -294,99 +294,20 @@ func (o *CreateInfraOptions) Run(ctx context.Context) (*CreateInfraOutput, error
 	}
 	log.Log.Info("Successfuly created private DNS zone link")
 
-	storageAccountClient := storage.NewAccountsClient(creds.SubscriptionID)
-	storageAccountClient.Authorizer = authorizer
-
-	storageAccountName := "cluster" + utilrand.String(5)
-	storageAccountFuture, err := storageAccountClient.Create(ctx, *rg.Name, storageAccountName, storage.AccountCreateParameters{
-		Sku:      &storage.Sku{Name: storage.SkuNamePremiumLRS, Tier: storage.SkuTierStandard},
-		Location: utilpointer.String(o.Location),
-	})
+	// Create RHCOS Image Containers
+	// TODO BootImageID should really contain the arm the hosted control planes were made in
+	arch := "x86"
+	result.BootImageID, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, arch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage account: %w", err)
+		return nil, fmt.Errorf("failed to create x86 RHCOS image container: %w", err)
 	}
-	if err := storageAccountFuture.WaitForCompletionRef(ctx, storageAccountClient.Client); err != nil {
-		return nil, fmt.Errorf("failed waiting for storage account creation to complete: %w", err)
-	}
-	log.Log.Info("Successfuly created storage account", "name", storageAccountName)
 
-	blobContainersClient := storage.NewBlobContainersClient(creds.SubscriptionID)
-	blobContainersClient.Authorizer = authorizer
-
-	imageContainer, err := blobContainersClient.Create(ctx, *rg.Name, storageAccountName, "vhd", storage.BlobContainer{})
+	// TODO if MF list image was selected
+	arch = "arm"
+	_, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, arch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create blob container: %w", err)
+		return nil, fmt.Errorf("failed to create ARM RHCOS image container: %w", err)
 	}
-	log.Log.Info("Successflly created blobcontainer", "name", *imageContainer.Name)
-
-	// TODO: Extract this from the release image or require a parameter
-	// Extraction is done like this:
-	// docker run --rm -it --entrypoint cat quay.io/openshift-release-dev/ocp-release:4.10.0-rc.0-x86_64 release-manifests/0000_50_installer_coreos-bootimages.yaml |yaml2json |jq .data.stream -r|jq '.architectures.x86_64["rhel-coreos-extensions"]["azure-disk"].url'
-	sourceURL := "https://rhcos.blob.core.windows.net/imagebucket/rhcos-49.84.202110081407-0-azure.x86_64.vhd"
-	blobName := "rhcos.x86_64.vhd"
-
-	// Explicitly check this, Azure API makes inferring the problem from the error message extremely hard
-	if !strings.HasPrefix(sourceURL, "https://rhcos.blob.core.windows.net") {
-		return nil, fmt.Errorf("the image source url must be from an azure blob storage, otherwise upload will fail with an `One of the request inputs is out of range` error")
-	}
-
-	// storage object access has its own authentication system: https://github.com/hashicorp/terraform-provider-azurerm/blob/b0c897055329438be6a3a159f6ffac4e1ce958f2/internal/services/storage/client/client.go#L133
-	accountsClient := storage.NewAccountsClient(creds.SubscriptionID)
-	accountsClient.Authorizer = authorizer
-	storageAccountKeyResult, err := accountsClient.ListKeys(ctx, resourceGroupName, storageAccountName, storage.ListKeyExpandKerb)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list storage account keys: %w", err)
-	}
-	if storageAccountKeyResult.Keys == nil || len(*storageAccountKeyResult.Keys) == 0 || (*storageAccountKeyResult.Keys)[0].Value == nil {
-		return nil, errors.New("no storage account keys exist")
-	}
-	blobAuth, err := autorest.NewSharedKeyAuthorizer(storageAccountName, *(*storageAccountKeyResult.Keys)[0].Value, autorest.SharedKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to construct storage object authorizer: %w", err)
-	}
-
-	blobClient := blobs.New()
-	blobClient.Authorizer = blobAuth
-	log.Log.Info("Uploading rhcos image", "source", sourceURL)
-	input := blobs.CopyInput{
-		CopySource: sourceURL,
-		MetaData: map[string]string{
-			"source_uri": sourceURL,
-		},
-	}
-	if err := blobClient.CopyAndWait(ctx, storageAccountName, "vhd", blobName, input, 5*time.Second); err != nil {
-		return nil, fmt.Errorf("failed to upload rhcos image: %w", err)
-	}
-	log.Log.Info("Successfully uploaded rhcos image")
-
-	imagesClient := compute.NewImagesClient(creds.SubscriptionID)
-	imagesClient.Authorizer = authorizer
-
-	imageBlobURL := "https://" + storageAccountName + ".blob.core.windows.net/" + "vhd" + "/" + blobName
-	imageInput := compute.Image{
-		ImageProperties: &compute.ImageProperties{
-			StorageProfile: &compute.ImageStorageProfile{OsDisk: &compute.ImageOSDisk{
-				OsType:  compute.OperatingSystemTypesLinux,
-				OsState: compute.OperatingSystemStateTypesGeneralized,
-				BlobURI: &imageBlobURL,
-			}},
-			HyperVGeneration: compute.HyperVGenerationTypesV1,
-		},
-		Location: utilpointer.String(o.Location),
-	}
-	imageCreationFuture, err := imagesClient.CreateOrUpdate(ctx, resourceGroupName, blobName, imageInput)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create image: %w", err)
-	}
-	if err := imageCreationFuture.WaitForCompletionRef(ctx, imagesClient.Client); err != nil {
-		return nil, fmt.Errorf("failed to wait for image creation to finish: %w", err)
-	}
-	imageCreationResult, err := imageCreationFuture.Result(imagesClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get imageCreationResult: %w", err)
-	}
-	result.BootImageID = *imageCreationResult.ID
-	log.Log.Info("Successfully created image", "resourceID", *imageCreationResult.ID, "result", imageCreationResult)
 
 	if o.OutputFile != "" {
 		resultSerialized, err := yaml.Marshal(result)
@@ -402,6 +323,113 @@ func (o *CreateInfraOptions) Run(ctx context.Context) (*CreateInfraOutput, error
 
 	return &result, nil
 
+}
+
+func createRHCOSImageContainer(ctx context.Context, creds *apifixtures.AzureCreds, authorizer autorest.Authorizer, rg resources.Group, resourceGroupName string, location string, arch string) (bootImageID string, err error) {
+	storageAccountClient := storage.NewAccountsClient(creds.SubscriptionID)
+	storageAccountClient.Authorizer = authorizer
+
+	storageAccountName := "cluster" + utilrand.String(5)
+	storageAccountFuture, err := storageAccountClient.Create(ctx, *rg.Name, storageAccountName, storage.AccountCreateParameters{
+		Sku:      &storage.Sku{Name: storage.SkuNamePremiumLRS, Tier: storage.SkuTierStandard},
+		Location: utilpointer.String(location),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create storage account: %w", err)
+	}
+	if err := storageAccountFuture.WaitForCompletionRef(ctx, storageAccountClient.Client); err != nil {
+		return "", fmt.Errorf("failed waiting for storage account creation to complete: %w", err)
+	}
+	log.Log.Info("Successfuly created storage account", "name", storageAccountName)
+
+	blobContainersClient := storage.NewBlobContainersClient(creds.SubscriptionID)
+	blobContainersClient.Authorizer = authorizer
+
+	vhd := "vhd-" + arch
+	imageContainer, err := blobContainersClient.Create(ctx, *rg.Name, storageAccountName, vhd, storage.BlobContainer{})
+	if err != nil {
+		return "", fmt.Errorf("failed to create blob container: %w", err)
+	}
+	log.Log.Info("Successflly created blobcontainer", "name", *imageContainer.Name)
+
+	// TODO: Extract this from the release image or require a parameter
+	// Extraction is done like this:
+	// docker run --rm -it --entrypoint cat quay.io/openshift-release-dev/ocp-release:4.10.0-rc.0-x86_64 release-manifests/0000_50_installer_coreos-bootimages.yaml |yaml2json |jq .data.stream -r|jq '.architectures.x86_64["rhel-coreos-extensions"]["azure-disk"].url'
+	sourceURL, blobName := "", ""
+	hyperVGenerationType := compute.HyperVGenerationTypesV1
+	if arch == "x86" {
+		sourceURL = "https://rhcos.blob.core.windows.net/imagebucket/rhcos-49.84.202110081407-0-azure.x86_64.vhd"
+		blobName = "rhcos.x86_64.vhd"
+	} else {
+		sourceURL = "https://rhcos.blob.core.windows.net/imagebucket/rhcos-411.86.202206242256-0-azure.aarch64.vhd"
+		blobName = "rhcos.aarch64.vhd"
+		hyperVGenerationType = compute.HyperVGenerationTypesV2
+	}
+
+	// Explicitly check this, Azure API makes inferring the problem from the error message extremely hard
+	if !strings.HasPrefix(sourceURL, "https://rhcos.blob.core.windows.net") {
+		return "", fmt.Errorf("the image source url must be from an azure blob storage, otherwise upload will fail with an `One of the request inputs is out of range` error")
+	}
+
+	// storage object access has its own authentication system: https://github.com/hashicorp/terraform-provider-azurerm/blob/b0c897055329438be6a3a159f6ffac4e1ce958f2/internal/services/storage/client/client.go#L133
+	accountsClient := storage.NewAccountsClient(creds.SubscriptionID)
+	accountsClient.Authorizer = authorizer
+	storageAccountKeyResult, err := accountsClient.ListKeys(ctx, resourceGroupName, storageAccountName, storage.ListKeyExpandKerb)
+	if err != nil {
+		return "", fmt.Errorf("failed to list storage account keys: %w", err)
+	}
+	if storageAccountKeyResult.Keys == nil || len(*storageAccountKeyResult.Keys) == 0 || (*storageAccountKeyResult.Keys)[0].Value == nil {
+		return "", errors.New("no storage account keys exist")
+	}
+	blobAuth, err := autorest.NewSharedKeyAuthorizer(storageAccountName, *(*storageAccountKeyResult.Keys)[0].Value, autorest.SharedKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to construct storage object authorizer: %w", err)
+	}
+
+	blobClient := blobs.New()
+	blobClient.Authorizer = blobAuth
+	log.Log.Info("Uploading rhcos image", "source", sourceURL)
+	input := blobs.CopyInput{
+		CopySource: sourceURL,
+		MetaData: map[string]string{
+			"source_uri": sourceURL,
+		},
+	}
+	if err := blobClient.CopyAndWait(ctx, storageAccountName, vhd, blobName, input, 5*time.Second); err != nil {
+		return "", fmt.Errorf("failed to upload rhcos image: %w", err)
+	}
+	log.Log.Info("Successfully uploaded rhcos image")
+
+	imagesClient := compute.NewImagesClient(creds.SubscriptionID)
+	imagesClient.Authorizer = authorizer
+
+	imageBlobURL := "https://" + storageAccountName + ".blob.core.windows.net/" + vhd + "/" + blobName
+	imageInput := compute.Image{
+		ImageProperties: &compute.ImageProperties{
+			StorageProfile: &compute.ImageStorageProfile{OsDisk: &compute.ImageOSDisk{
+				OsType:  compute.OperatingSystemTypesLinux,
+				OsState: compute.OperatingSystemStateTypesGeneralized,
+				BlobURI: &imageBlobURL,
+			}},
+			HyperVGeneration: hyperVGenerationType,
+		},
+		Location: utilpointer.String(location),
+	}
+	imageCreationFuture, err := imagesClient.CreateOrUpdate(ctx, resourceGroupName, blobName, imageInput)
+	if err != nil {
+		return "", fmt.Errorf("failed to create image: %w", err)
+	}
+	if err := imageCreationFuture.WaitForCompletionRef(ctx, imagesClient.Client); err != nil {
+		return "", fmt.Errorf("failed to wait for image creation to finish: %w", err)
+	}
+	imageCreationResult, err := imageCreationFuture.Result(imagesClient)
+	if err != nil {
+		return "", fmt.Errorf("failed to get imageCreationResult: %w", err)
+	}
+	bootImageID = *imageCreationResult.ID
+	log.Log.Info("Successfully created image", "resourceID", *imageCreationResult.ID, "result", imageCreationResult)
+
+	return bootImageID, nil
 }
 
 func findDNSZone(ctx context.Context, client dns.ZonesClient, name string) (*dns.Zone, error) {
