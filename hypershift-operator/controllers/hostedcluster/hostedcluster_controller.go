@@ -300,6 +300,30 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// Part zero: Handle deprecated fields.
+	// This is done before anything else to prevent other update calls from failing if e.g. they are missing a new required field.
+	// TODO (alberto): drop this as we cut beta and only support >= GA clusters.
+	originalSpec := hcluster.Spec.DeepCopy()
+
+	// Reconcile deprecated global configuration.
+	if err := r.reconcileDeprecatedGlobalConfig(ctx, hcluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Reconcile deprecated AWS roles.
+	switch hcluster.Spec.Platform.Type {
+	case hyperv1.AWSPlatform:
+		if err := r.reconcileDeprecatedAWSRoles(ctx, hcluster); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Update fields if required.
+	if !equality.Semantic.DeepEqual(&hcluster.Spec, originalSpec) {
+		log.Info("Updating deprecated fields for hosted cluster")
+		return ctrl.Result{}, r.Client.Update(ctx, hcluster)
+	}
+
 	// Part one: update status
 
 	// Set kubeconfig status
@@ -568,7 +592,7 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		newCondition.ObservedGeneration = hcluster.Generation
 		meta.SetStatusCondition(&hcluster.Status.Conditions, newCondition)
 	}
-	meta.SetStatusCondition(&hcluster.Status.Conditions, util.GenerateReconciliationPausedCondition(hcluster.Spec.PausedUntil, hcluster.Generation))
+	meta.SetStatusCondition(&hcluster.Status.Conditions, util.GenerateReconciliationActiveCondition(hcluster.Spec.PausedUntil, hcluster.Generation))
 
 	// Set ValidReleaseImage condition
 	{
@@ -665,28 +689,6 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				log.Info(msg)
 			}
 		}
-	}
-
-	// Handle deprecated fields.
-	originalSpec := hcluster.Spec.DeepCopy()
-
-	// Reconcile deprecated global configuration.
-	if err := r.reconcileDeprecatedGlobalConfig(ctx, hcluster); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// Reconcile deprecated AWS roles.
-	switch hcluster.Spec.Platform.Type {
-	case hyperv1.AWSPlatform:
-		if err := r.reconcileDeprecatedAWSRoles(ctx, hcluster); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Update fields if required.
-	if !equality.Semantic.DeepEqual(&hcluster.Spec, originalSpec) {
-		log.Info("Updating deprecated fields for hosted cluster")
-		return ctrl.Result{}, r.Client.Update(ctx, hcluster)
 	}
 
 	createOrUpdate := r.createOrUpdate(req)
@@ -1232,8 +1234,8 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	case hyperv1.AWSPlatform:
 		if err := r.reconcileAWSOIDCDocuments(ctx, log, hcluster, hcp); err != nil {
 			meta.SetStatusCondition(&hcluster.Status.Conditions, metav1.Condition{
-				Type:               string(hyperv1.OIDCConfigurationInvalid),
-				Status:             metav1.ConditionTrue,
+				Type:               string(hyperv1.ValidOIDCConfiguration),
+				Status:             metav1.ConditionFalse,
 				Reason:             hyperv1.OIDCConfigurationInvalidReason,
 				ObservedGeneration: hcluster.Generation,
 				Message:            err.Error(),
@@ -1243,8 +1245,14 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			}
 			return ctrl.Result{}, fmt.Errorf("failed to reconcile the AWS OIDC documents: %w", err)
 		}
-		if meta.IsStatusConditionTrue(hcluster.Status.Conditions, string(hyperv1.OIDCConfigurationInvalid)) {
-			meta.RemoveStatusCondition(&hcluster.Status.Conditions, string(hyperv1.OIDCConfigurationInvalid))
+		if meta.IsStatusConditionFalse(hcluster.Status.Conditions, string(hyperv1.ValidOIDCConfiguration)) {
+			meta.SetStatusCondition(&hcluster.Status.Conditions, metav1.Condition{
+				Type:               string(hyperv1.ValidOIDCConfiguration),
+				Status:             metav1.ConditionTrue,
+				Reason:             hyperv1.AsExpectedReason,
+				ObservedGeneration: hcluster.Generation,
+				Message:            "OIDC configuration is valid",
+			})
 			if err := r.Client.Status().Update(ctx, hcluster); err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
 			}
@@ -1397,8 +1405,8 @@ func ensureHCPAWSRolesBackwardCompatibility(hc *hyperv1.HostedCluster, hcp *hype
 			Name:      "ebs-cloud-credentials",
 		},
 		{
-			ARN:       hc.Spec.Platform.AWS.RolesRef.ImageRegistryARN,
-			Namespace: "cloud-network-config-controller",
+			ARN:       hc.Spec.Platform.AWS.RolesRef.NetworkARN,
+			Namespace: "openshift-cloud-network-config-controller",
 			Name:      "cloud-credentials",
 		},
 	}

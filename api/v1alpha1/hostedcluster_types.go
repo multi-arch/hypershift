@@ -1364,6 +1364,16 @@ type ManagedEtcdStorageSpec struct {
 	//
 	// +optional
 	PersistentVolume *PersistentVolumeEtcdStorageSpec `json:"persistentVolume,omitempty"`
+
+	// RestoreSnapshotURL allows an optional list of URLs to be provided where
+	// an etcd snapshot can be downloaded, for example a pre-signed URL
+	// referencing a storage service, one URL per replica.
+	// This snapshot will be restored on initial startup, only when the etcd PV
+	// is empty.
+	//
+	// +optional
+	// +immutable
+	RestoreSnapshotURL []string `json:"restoreSnapshotURL"`
 }
 
 // PersistentVolumeEtcdStorageSpec is the configuration for PersistentVolume
@@ -1597,13 +1607,13 @@ const (
 	// underlying cluster's ClusterVersion.
 	ClusterVersionUpgradeable ConditionType = "ClusterVersionUpgradeable"
 
-	// ReconciliationPaused indicates if reconciliation of the hostedcluster is
-	// paused.
-	ReconciliationPaused ConditionType = "ReconciliationPaused"
+	// ReconciliationActive indicates if reconciliation of the hostedcluster is
+	// active or paused.
+	ReconciliationActive ConditionType = "ReconciliationActive"
 
-	// OIDCConfigurationInvalid indicates if an AWS cluster's OIDC condition is
+	// ValidOIDCConfiguration indicates if an AWS cluster's OIDC condition is
 	// detected as invalid.
-	OIDCConfigurationInvalid ConditionType = "OIDCConfigurationInvalid"
+	ValidOIDCConfiguration ConditionType = "ValidOIDCConfiguration"
 
 	// ValidReleaseImage indicates if the release image set in the spec is valid
 	// for the HostedCluster. For example, this can be set false if the
