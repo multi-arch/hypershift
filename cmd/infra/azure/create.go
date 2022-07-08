@@ -10,12 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	apifixtures "github.com/openshift/hypershift/api/fixtures"
-	"github.com/openshift/hypershift/cmd/log"
-	utilrand "k8s.io/apimachinery/pkg/util/rand"
-	utilpointer "k8s.io/utils/pointer"
-	"sigs.k8s.io/yaml"
-
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2021-11-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/dns/mgmt/2018-05-01/dns"
 	"github.com/Azure/azure-sdk-for-go/services/msi/mgmt/2018-11-30/msi"
@@ -28,6 +22,13 @@ import (
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
 	"github.com/hashicorp/go-uuid"
+	apifixtures "github.com/openshift/hypershift/api/fixtures"
+	"github.com/openshift/hypershift/cmd/cluster/core"
+	"github.com/openshift/hypershift/cmd/log"
+	"github.com/openshift/hypershift/support/releaseinfo/registryclient"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	utilpointer "k8s.io/utils/pointer"
+	"sigs.k8s.io/yaml"
 
 	// This is the same client as terraform uses: https://github.com/hashicorp/terraform-provider-azurerm/blob/b0c897055329438be6a3a159f6ffac4e1ce958f2/internal/services/storage/blobs.go#L17
 	// The one from the azure sdk is cumbersome to use (distinct authorizer, requires to manually construct the full target url), and only allows upload from url for files that are not bigger than 256M.
@@ -295,18 +296,31 @@ func (o *CreateInfraOptions) Run(ctx context.Context) (*CreateInfraOutput, error
 	log.Log.Info("Successfuly created private DNS zone link")
 
 	// Create RHCOS Image Containers
-	// TODO BootImageID should really contain the arm the hosted control planes were made in
+	// TODO BootImageID should really contain the arch the hosted control planes were made in
 	arch := "x86"
 	result.BootImageID, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, arch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create x86 RHCOS image container: %w", err)
 	}
 
-	// TODO if MF list image was selected
-	arch = "arm"
-	_, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, arch)
+	opts := ctx.Value("useropts").(core.CreateOptions)
+
+	pullSecret, err := ioutil.ReadFile(opts.PullSecretFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create ARM RHCOS image container: %w", err)
+		return nil, fmt.Errorf("failed to read pull secret file: %w", err)
+	}
+
+	isManifestListImage, err := registryclient.IsMultiArchManifestList(ctx, opts.ReleaseImage, pullSecret)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine if image is manifest listed: %w", err)
+	}
+
+	if isManifestListImage {
+		arch = "arm"
+		_, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, arch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ARM RHCOS image container: %w", err)
+		}
 	}
 
 	if o.OutputFile != "" {

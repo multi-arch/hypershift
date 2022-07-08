@@ -77,6 +77,11 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 			return fmt.Errorf("failed to deserialize infra json file: %w", err)
 		}
 	} else {
+		useropts := core.CreateOptions {
+			ReleaseImage: opts.ReleaseImage,
+			PullSecretFile: opts.PullSecretFile,
+		}
+		ctx = context.WithValue(ctx, "useropts", useropts) 
 		infraID := infraid.New(opts.Name)
 		infra, err = (&azureinfra.CreateInfraOptions{
 			Name:            opts.Name,
