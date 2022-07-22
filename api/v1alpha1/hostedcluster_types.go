@@ -845,11 +845,6 @@ type AWSPlatformSpec struct {
 	// +kubebuilder:default=Public
 	// +optional
 	EndpointAccess AWSEndpointAccessType `json:"endpointAccess,omitempty"`
-
-	// NodepoolArch specifies the default processor architecture for nodepools
-	//
-	// +optional
-	NodepoolArch string `json:"nodepoolarch"`
 }
 
 type AWSRoleCredentials struct {

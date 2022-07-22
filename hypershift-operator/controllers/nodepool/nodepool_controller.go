@@ -350,14 +350,8 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 		if hcluster.Spec.Platform.AWS == nil {
 			return ctrl.Result{}, fmt.Errorf("the HostedCluster for this NodePool has no .Spec.Platform.AWS, this is unsupported")
 		}
-		var nodepoolArch string
-		if nodePool.Spec.Platform.AWS.NodepoolArch != "" {
-			nodepoolArch = nodePool.Spec.Platform.AWS.NodepoolArch
-		} else {
-			nodepoolArch = hcluster.Spec.Platform.AWS.NodepoolArch
-		}
 		if nodePool.Spec.Platform.AWS.InstanceType == "" {
-			switch nodepoolArch {
+			switch nodePool.Spec.Platform.AWS.NodepoolArch {
 			case "x86_64":
 				nodePool.Spec.Platform.AWS.InstanceType = "m5.large"
 			case "aarch64":
@@ -370,7 +364,7 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 			removeStatusCondition(&nodePool.Status.Conditions, hyperv1.NodePoolValidAMIConditionType)
 		} else {
 			// TODO: Should the region be included in the NodePool platform information?
-			ami, err = defaultNodePoolAMI(hcluster.Spec.Platform.AWS.Region, nodepoolArch, releaseImage)
+			ami, err = defaultNodePoolAMI(hcluster.Spec.Platform.AWS.Region, nodePool.Spec.Platform.AWS.NodepoolArch, releaseImage)
 			if err != nil {
 				setStatusCondition(&nodePool.Status.Conditions, hyperv1.NodePoolCondition{
 					Type:               hyperv1.NodePoolValidAMIConditionType,

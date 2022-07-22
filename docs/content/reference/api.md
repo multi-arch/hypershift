@@ -1312,18 +1312,6 @@ Value must be one of:
 </p>
 </td>
 </tr>
-<tr>
-<td>
-<code>nodepoolarch</code></br>
-<em>
-string
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>NodepoolArch specifies the default processor architecture for nodepools</p>
-</td>
-</tr>
 </tbody>
 </table>
 ###AWSResourceReference { #hypershift.openshift.io/v1alpha1.AWSResourceReference }

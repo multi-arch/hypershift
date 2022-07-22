@@ -178,7 +178,6 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 				},
 				ResourceTags:   o.AWS.ResourceTags,
 				EndpointAccess: endpointAccess,
-				NodepoolArch:   o.AWS.NodepoolArch,
 			},
 		}
 
@@ -549,6 +548,7 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 					Type: o.AWS.RootVolumeType,
 					IOPS: o.AWS.RootVolumeIOPS,
 				},
+				NodepoolArch: o.AWS.NodepoolArch,
 			}
 			nodePools = append(nodePools, nodePool)
 		}
