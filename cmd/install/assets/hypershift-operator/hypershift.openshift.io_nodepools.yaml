@@ -283,6 +283,10 @@ spec:
                         description: InstanceType is an ec2 instance type for node
                           instances (e.g. m5.large).
                         type: string
+                      nodepoolarch:
+                        description: NodepoolArch is an optional parameter specifying
+                          the preferred processor architecture for the nodepool
+                        type: string
                       resourceTags:
                         description: "ResourceTags is an optional list of additional
                           tags to apply to AWS node instances. \n These will be merged

@@ -553,6 +553,12 @@ type AWSNodePoolPlatform struct {
 	// +kubebuilder:validation:MaxItems=25
 	// +optional
 	ResourceTags []AWSResourceTag `json:"resourceTags,omitempty"`
+
+	// NodepoolArch is an optional parameter specifying the preferred processor
+	// architecture for the nodepool
+	//
+	// +optional
+	NodepoolArch string `json:"nodepoolarch"`
 }
 
 // AWSResourceReference is a reference to a specific AWS resource by ID, ARN, or filters.

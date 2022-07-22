@@ -350,13 +350,27 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 		if hcluster.Spec.Platform.AWS == nil {
 			return ctrl.Result{}, fmt.Errorf("the HostedCluster for this NodePool has no .Spec.Platform.AWS, this is unsupported")
 		}
+		var nodepoolArch string
+		if nodePool.Spec.Platform.AWS.NodepoolArch != "" {
+			nodepoolArch = nodePool.Spec.Platform.AWS.NodepoolArch
+		} else {
+			nodepoolArch = hcluster.Spec.Platform.AWS.NodepoolArch
+		}
+		if nodePool.Spec.Platform.AWS.InstanceType == "" {
+			switch nodepoolArch {
+			case "x86_64":
+				nodePool.Spec.Platform.AWS.InstanceType = "m5.large"
+			case "aarch64":
+				nodePool.Spec.Platform.AWS.InstanceType = "m6g.large"
+			}
+		}
 		if nodePool.Spec.Platform.AWS.AMI != "" {
 			ami = nodePool.Spec.Platform.AWS.AMI
 			// User-defined AMIs cannot be validated
 			removeStatusCondition(&nodePool.Status.Conditions, hyperv1.NodePoolValidAMIConditionType)
 		} else {
 			// TODO: Should the region be included in the NodePool platform information?
-			ami, err = defaultNodePoolAMI(hcluster.Spec.Platform.AWS.Region, releaseImage)
+			ami, err = defaultNodePoolAMI(hcluster.Spec.Platform.AWS.Region, nodepoolArch, releaseImage)
 			if err != nil {
 				setStatusCondition(&nodePool.Status.Conditions, hyperv1.NodePoolCondition{
 					Type:               hyperv1.NodePoolValidAMIConditionType,
@@ -1307,11 +1321,10 @@ func validateAutoscaling(nodePool *hyperv1.NodePool) error {
 	return nil
 }
 
-func defaultNodePoolAMI(region string, releaseImage *releaseinfo.ReleaseImage) (string, error) {
-	// TODO: The architecture should be specified from the API
-	arch, foundArch := releaseImage.StreamMetadata.Architectures["x86_64"]
+func defaultNodePoolAMI(region string, nodepoolArch string, releaseImage *releaseinfo.ReleaseImage) (string, error) {
+	arch, foundArch := releaseImage.StreamMetadata.Architectures[nodepoolArch]
 	if !foundArch {
-		return "", fmt.Errorf("couldn't find OS metadata for architecture %q", "x64_64")
+		return "", fmt.Errorf("couldn't find OS metadata for architecture %q", nodepoolArch)
 	}
 
 	regionData, hasRegionData := arch.Images.AWS.Regions[region]
@@ -1327,7 +1340,7 @@ func defaultNodePoolAMI(region string, releaseImage *releaseinfo.ReleaseImage) (
 func defaultKubeVirtImage(releaseImage *releaseinfo.ReleaseImage) (string, error) {
 	arch, foundArch := releaseImage.StreamMetadata.Architectures["x86_64"]
 	if !foundArch {
-		return "", fmt.Errorf("couldn't find OS metadata for architecture %q", "x64_64")
+		return "", fmt.Errorf("couldn't find OS metadata for architecture %q", "x86_64")
 	}
 	openStack, exists := arch.Artifacts["openstack"]
 	if !exists {

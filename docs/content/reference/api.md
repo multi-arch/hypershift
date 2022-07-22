@@ -1120,6 +1120,19 @@ resource. OpenShift reserves 25 tags for its use, leaving 25 tags available
 for the user.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>nodepoolarch</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>NodepoolArch is an optional parameter specifying the preferred processor
+architecture for the nodepool</p>
+</td>
+</tr>
 </tbody>
 </table>
 ###AWSPlatformSpec { #hypershift.openshift.io/v1alpha1.AWSPlatformSpec }
@@ -1297,6 +1310,18 @@ Value must be one of:
 &#34;Public&#34;, 
 &#34;PublicAndPrivate&#34;
 </p>
+</td>
+</tr>
+<tr>
+<td>
+<code>nodepoolarch</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>NodepoolArch specifies the default processor architecture for nodepools</p>
 </td>
 </tr>
 </tbody>

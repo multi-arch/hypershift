@@ -18,14 +18,16 @@ type AWSPlatformCreateOptions struct {
 	RootVolumeType  string
 	RootVolumeIOPS  int64
 	RootVolumeSize  int64
+	NodepoolArch    string
 }
 
 func NewCreateCommand(coreOpts *core.CreateNodePoolOptions) *cobra.Command {
 	platformOpts := &AWSPlatformCreateOptions{
-		InstanceType:   "m5.large",
+		InstanceType:   "",
 		RootVolumeType: "gp3",
 		RootVolumeSize: 120,
 		RootVolumeIOPS: 0,
+		NodepoolArch:   "x86_64",
 	}
 	cmd := &cobra.Command{
 		Use:          "aws",
@@ -40,6 +42,7 @@ func NewCreateCommand(coreOpts *core.CreateNodePoolOptions) *cobra.Command {
 	cmd.Flags().StringVar(&platformOpts.RootVolumeType, "root-volume-type", platformOpts.RootVolumeType, "The type of the root volume (e.g. gp3, io2) for machines in the NodePool")
 	cmd.Flags().Int64Var(&platformOpts.RootVolumeIOPS, "root-volume-iops", platformOpts.RootVolumeIOPS, "The iops of the root volume for machines in the NodePool")
 	cmd.Flags().Int64Var(&platformOpts.RootVolumeSize, "root-volume-size", platformOpts.RootVolumeSize, "The size of the root volume (min: 8) for machines in the NodePool")
+	cmd.Flags().StringVar(&platformOpts.NodepoolArch, "nodepool-arch", platformOpts.NodepoolArch, "The processor architecture for the NodePool (e.g. aarch64, x86_64)")
 
 	cmd.RunE = coreOpts.CreateRunFunc(platformOpts)
 
@@ -78,8 +81,21 @@ func (o *AWSPlatformCreateOptions) UpdateNodePool(ctx context.Context, nodePool 
 		}
 		o.SecurityGroupID = *defaultNodePool.Spec.Platform.AWS.SecurityGroups[0].ID
 	}
+	
+	var instanceType string
+	if o.InstanceType != "" {
+		instanceType = o.InstanceType
+	} else {
+		switch o.NodepoolArch {
+		case "x86_64":
+			instanceType = "m5.large"
+		case "aarch64":
+			instanceType = "m6g.large"
+		}
+	}
+
 	nodePool.Spec.Platform.AWS = &hyperv1.AWSNodePoolPlatform{
-		InstanceType:    o.InstanceType,
+		InstanceType:    instanceType,
 		InstanceProfile: o.InstanceProfile,
 		Subnet: &hyperv1.AWSResourceReference{
 			ID: &o.SubnetID,
@@ -94,6 +110,7 @@ func (o *AWSPlatformCreateOptions) UpdateNodePool(ctx context.Context, nodePool 
 			Size: o.RootVolumeSize,
 			IOPS: o.RootVolumeIOPS,
 		},
+		NodepoolArch: o.NodepoolArch,
 	}
 	return nil
 }

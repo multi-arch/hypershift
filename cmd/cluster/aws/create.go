@@ -25,11 +25,12 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	opts.AWSPlatform = core.AWSPlatformOptions{
 		AWSCredentialsFile: "",
 		Region:             "us-east-1",
-		InstanceType:       "m5.large",
+		InstanceType:       "",
 		RootVolumeType:     "gp3",
 		RootVolumeSize:     120,
 		RootVolumeIOPS:     0,
 		EndpointAccess:     string(hyperv1.Public),
+		NodepoolArch:       "x86_64",
 	}
 
 	cmd.Flags().StringVar(&opts.AWSPlatform.AWSCredentialsFile, "aws-creds", opts.AWSPlatform.AWSCredentialsFile, "Path to an AWS credentials file (required)")
@@ -44,6 +45,7 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	cmd.Flags().StringVar(&opts.AWSPlatform.EndpointAccess, "endpoint-access", opts.AWSPlatform.EndpointAccess, "Access for control plane endpoints (Public, PublicAndPrivate, Private)")
 	cmd.Flags().StringVar(&opts.AWSPlatform.EtcdKMSKeyARN, "kms-key-arn", opts.AWSPlatform.EtcdKMSKeyARN, "The ARN of the KMS key to use for Etcd encryption. If not supplied, etcd encryption will default to using a generated AESCBC key.")
 	cmd.Flags().BoolVar(&opts.AWSPlatform.EnableProxy, "enable-proxy", opts.AWSPlatform.EnableProxy, "If a proxy should be set up, rather than allowing direct internet access from the nodes")
+	cmd.Flags().StringVar(&opts.AWSPlatform.NodepoolArch, "nodepool-arch", opts.AWSPlatform.NodepoolArch, "The default processor architecture for the NodePool (e.g. aarch64, x86_64)")
 
 	cmd.MarkFlagRequired("aws-creds")
 
@@ -156,6 +158,18 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		tags = append(tags, hyperv1.AWSResourceTag{Key: k, Value: v})
 	}
 
+	var instanceType string
+	if opts.AWSPlatform.InstanceType != "" {
+		instanceType = opts.AWSPlatform.InstanceType
+	} else {
+		switch opts.AWSPlatform.NodepoolArch {
+		case "x86_64":
+			instanceType = "m5.large"
+		case "aarch64":
+			instanceType = "m6g.large"
+		}
+	}
+
 	exampleOptions.BaseDomain = infra.BaseDomain
 	exampleOptions.ComputeCIDR = infra.ComputeCIDR
 	exampleOptions.IssuerURL = iamInfo.IssuerURL
@@ -176,7 +190,7 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		VPCID:              infra.VPCID,
 		SecurityGroupID:    infra.SecurityGroupID,
 		InstanceProfile:    iamInfo.ProfileName,
-		InstanceType:       opts.AWSPlatform.InstanceType,
+		InstanceType:       instanceType,
 		Roles:              iamInfo.Roles,
 		KMSProviderRoleARN: iamInfo.KMSProviderRoleARN,
 		KMSKeyARN:          iamInfo.KMSKeyARN,
@@ -186,6 +200,7 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		ResourceTags:       tags,
 		EndpointAccess:     opts.AWSPlatform.EndpointAccess,
 		ProxyAddress:       infra.ProxyAddr,
+		NodepoolArch:       opts.AWSPlatform.NodepoolArch,
 	}
 	return nil
 }

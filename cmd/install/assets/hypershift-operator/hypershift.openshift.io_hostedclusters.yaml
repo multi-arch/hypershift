@@ -2190,6 +2190,10 @@ spec:
                               TODO: Add other useful fields. apiVersion, kind, uid?'
                             type: string
                         type: object
+                      nodepoolarch:
+                        description: NodepoolArch specifies the default processor
+                          architecture for nodepools
+                        type: string
                       region:
                         description: Region is the AWS region in which the cluster
                           resides. This configures the OCP control plane cloud integrations,

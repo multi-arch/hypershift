@@ -178,6 +178,7 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 				},
 				ResourceTags:   o.AWS.ResourceTags,
 				EndpointAccess: endpointAccess,
+				NodepoolArch:   o.AWS.NodepoolArch,
 			},
 		}
 

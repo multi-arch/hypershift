@@ -129,6 +129,7 @@ type AWSPlatformOptions struct {
 	Zones              []string
 	EtcdKMSKeyARN      string
 	EnableProxy        bool
+	NodepoolArch       string
 }
 
 type AzurePlatformOptions struct {
