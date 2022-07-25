@@ -350,6 +350,9 @@ func (r *NodePoolReconciler) reconcile(ctx context.Context, hcluster *hyperv1.Ho
 		if hcluster.Spec.Platform.AWS == nil {
 			return ctrl.Result{}, fmt.Errorf("the HostedCluster for this NodePool has no .Spec.Platform.AWS, this is unsupported")
 		}
+		if nodePool.Spec.Platform.AWS.NodepoolArch == "" {
+			nodePool.Spec.Platform.AWS.NodepoolArch = "x86_64"
+		}
 		if nodePool.Spec.Platform.AWS.InstanceType == "" {
 			switch nodePool.Spec.Platform.AWS.NodepoolArch {
 			case "x86_64":
