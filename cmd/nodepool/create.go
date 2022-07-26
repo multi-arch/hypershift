@@ -28,6 +28,7 @@ func NewCreateCommand() *cobra.Command {
 		ClusterName:  "example",
 		NodeCount:    2,
 		ReleaseImage: "",
+		NodepoolArch: "x86_64",
 	}
 
 	cmd.PersistentFlags().StringVar(&opts.Name, "name", opts.Name, "The name of the NodePool")
@@ -35,6 +36,7 @@ func NewCreateCommand() *cobra.Command {
 	cmd.PersistentFlags().Int32Var(&opts.NodeCount, "node-count", opts.NodeCount, "The number of nodes to create in the NodePool")
 	cmd.PersistentFlags().StringVar(&opts.ClusterName, "cluster-name", opts.ClusterName, "The name of the HostedCluster nodes in this pool will join")
 	cmd.PersistentFlags().StringVar(&opts.ReleaseImage, "release-image", opts.ReleaseImage, "The release image for nodes. If empty, defaults to the same release image as the HostedCluster.")
+	cmd.PersistentFlags().StringVar(&opts.NodepoolArch, "nodepool-arch", opts.NodepoolArch, "The processor architecture for the NodePool (e.g. aarch64, x86_64)")
 
 	cmd.PersistentFlags().BoolVar(&opts.Render, "render", false, "Render output as YAML to stdout instead of applying")
 

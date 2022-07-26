@@ -22,6 +22,7 @@ type CreateNodePoolOptions struct {
 	NodeCount    int32
 	ReleaseImage string
 	Render       bool
+	NodepoolArch string
 }
 
 type PlatformOptions interface {
@@ -91,6 +92,7 @@ func (o *CreateNodePoolOptions) CreateNodePool(ctx context.Context, platformOpts
 			Platform: hyperv1.NodePoolPlatform{
 				Type: hcluster.Spec.Platform.Type,
 			},
+			NodepoolArch: o.NodepoolArch,
 		},
 	}
 
