@@ -134,6 +134,12 @@ type NodePoolSpec struct {
 	// https://github.com/kubernetes-sigs/cluster-api/issues/5880
 	// +optional
 	NodeDrainTimeout *metav1.Duration `json:"nodeDrainTimeout,omitempty"`
+
+	// NodepoolArch is an optional parameter specifying the preferred processor
+	// architecture for the nodepool
+	//
+	// +optional
+	NodepoolArch string `json:"nodepoolarch"`
 }
 
 // NodePoolStatus is the latest observed status of a NodePool.
@@ -553,12 +559,6 @@ type AWSNodePoolPlatform struct {
 	// +kubebuilder:validation:MaxItems=25
 	// +optional
 	ResourceTags []AWSResourceTag `json:"resourceTags,omitempty"`
-
-	// NodepoolArch is an optional parameter specifying the preferred processor
-	// architecture for the nodepool
-	//
-	// +optional
-	NodepoolArch string `json:"nodepoolarch"`
 }
 
 // AWSResourceReference is a reference to a specific AWS resource by ID, ARN, or filters.

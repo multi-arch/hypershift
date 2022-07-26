@@ -33,6 +33,7 @@ func NewCreateCommands() *cobra.Command {
 		AdditionalTrustBundle:          "",
 		ImageContentSources:            "",
 		Log:                            log.Log,
+		NodepoolArch:                   "x86_64",
 	}
 	cmd := &cobra.Command{
 		Use:          "cluster",
@@ -66,6 +67,7 @@ func NewCreateCommands() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.PodCIDR, "pod-cidr", opts.PodCIDR, "The CIDR of the pod network")
 	cmd.PersistentFlags().BoolVar(&opts.Wait, "wait", opts.Wait, "If the create command should block until the cluster is up. Requires at least one node.")
 	cmd.PersistentFlags().DurationVar(&opts.Timeout, "timeout", opts.Timeout, "If the --wait flag is set, set the optional timeout to limit the waiting duration. The format is duration; e.g. 30s or 1h30m45s; 0 means no timeout; default = 0")
+	cmd.PersistentFlags().StringVar(&opts.NodepoolArch, "nodepool-arch", opts.NodepoolArch, "The default processor architecture for the NodePool (e.g. aarch64, x86_64)")
 
 	cmd.MarkPersistentFlagRequired("pull-secret")
 

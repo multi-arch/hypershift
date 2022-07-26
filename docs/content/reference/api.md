@@ -663,6 +663,19 @@ the purpose of the change. In future we plan to propagate this field in-place.
 <a href="https://github.com/kubernetes-sigs/cluster-api/issues/5880">https://github.com/kubernetes-sigs/cluster-api/issues/5880</a></p>
 </td>
 </tr>
+<tr>
+<td>
+<code>nodepoolarch</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>NodepoolArch is an optional parameter specifying the preferred processor
+architecture for the nodepool</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -1118,19 +1131,6 @@ take precedence in case of conflicts.</p>
 information on tagging AWS resources. AWS supports a maximum of 50 tags per
 resource. OpenShift reserves 25 tags for its use, leaving 25 tags available
 for the user.</p>
-</td>
-</tr>
-<tr>
-<td>
-<code>nodepoolarch</code></br>
-<em>
-string
-</em>
-</td>
-<td>
-<em>(Optional)</em>
-<p>NodepoolArch is an optional parameter specifying the preferred processor
-architecture for the nodepool</p>
 </td>
 </tr>
 </tbody>
@@ -5452,6 +5452,19 @@ NOTE: NodeDrainTimeout is different from <code>kubectl drain --timeout</code>
 TODO (alberto): Today changing this field will trigger a recreate rolling update, which kind of defeats
 the purpose of the change. In future we plan to propagate this field in-place.
 <a href="https://github.com/kubernetes-sigs/cluster-api/issues/5880">https://github.com/kubernetes-sigs/cluster-api/issues/5880</a></p>
+</td>
+</tr>
+<tr>
+<td>
+<code>nodepoolarch</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>NodepoolArch is an optional parameter specifying the preferred processor
+architecture for the nodepool</p>
 </td>
 </tr>
 </tbody>

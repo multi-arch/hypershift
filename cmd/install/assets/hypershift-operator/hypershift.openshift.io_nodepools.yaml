@@ -210,6 +210,10 @@ spec:
                   rolling update, which kind of defeats the purpose of the change.
                   In future we plan to propagate this field in-place. https://github.com/kubernetes-sigs/cluster-api/issues/5880'
                 type: string
+              nodepoolarch:
+                description: NodepoolArch is an optional parameter specifying the
+                  preferred processor architecture for the nodepool
+                type: string
               platform:
                 description: Platform specifies the underlying infrastructure provider
                   for the NodePool and is used to configure platform specific behavior.
@@ -282,10 +286,6 @@ spec:
                       instanceType:
                         description: InstanceType is an ec2 instance type for node
                           instances (e.g. m5.large).
-                        type: string
-                      nodepoolarch:
-                        description: NodepoolArch is an optional parameter specifying
-                          the preferred processor architecture for the nodepool
                         type: string
                       resourceTags:
                         description: "ResourceTags is an optional list of additional

@@ -60,6 +60,7 @@ type CreateOptions struct {
 	ServiceCIDR                      string
 	PodCIDR                          string
 	ExternalDNSDomain                string
+	NodepoolArch                     string
 	NonePlatform                     NonePlatformCreateOptions
 	KubevirtPlatform                 KubevirtPlatformCreateOptions
 	AWSPlatform                      AWSPlatformOptions
@@ -129,7 +130,6 @@ type AWSPlatformOptions struct {
 	Zones              []string
 	EtcdKMSKeyARN      string
 	EnableProxy        bool
-	NodepoolArch       string
 }
 
 type AzurePlatformOptions struct {
@@ -229,6 +229,7 @@ func createCommonFixture(ctx context.Context, opts *CreateOptions) (*apifixtures
 		EtcdStorageClass:                 opts.EtcdStorageClass,
 		ServiceCIDR:                      opts.ServiceCIDR,
 		PodCIDR:                          opts.PodCIDR,
+		NodepoolArch:                     opts.NodepoolArch,
 	}, nil
 }
 
