@@ -26588,8 +26588,14 @@ objects:
                     In future we plan to propagate this field in-place. https://github.com/kubernetes-sigs/cluster-api/issues/5880'
                   type: string
                 nodepoolarch:
+                  default: x86_64
                   description: NodepoolArch is an optional parameter specifying the
                     preferred processor architecture for the nodepool
+                  enum:
+                  - aarch64
+                  - x86_64
+                  - ppc64le
+                  - s390x
                   type: string
                 platform:
                   description: Platform specifies the underlying infrastructure provider

@@ -138,6 +138,8 @@ type NodePoolSpec struct {
 	// NodepoolArch is an optional parameter specifying the preferred processor
 	// architecture for the nodepool
 	//
+	// +kubebuilder:default:=x86_64
+	// +kubebuilder:validation:Enum=aarch64;x86_64;ppc64le;s390x
 	// +optional
 	NodepoolArch string `json:"nodepoolarch"`
 }
