@@ -673,7 +673,8 @@ string
 <td>
 <em>(Optional)</em>
 <p>NodepoolArch is an optional parameter specifying the preferred processor
-architecture for the nodepool</p>
+architecture for the nodepool
+TODO Add ppc64le and s390x to enum validation once the architectures are supported</p>
 </td>
 </tr>
 </table>
@@ -5464,7 +5465,8 @@ string
 <td>
 <em>(Optional)</em>
 <p>NodepoolArch is an optional parameter specifying the preferred processor
-architecture for the nodepool</p>
+architecture for the nodepool
+TODO Add ppc64le and s390x to enum validation once the architectures are supported</p>
 </td>
 </tr>
 </tbody>
