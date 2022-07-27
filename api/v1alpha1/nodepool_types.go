@@ -135,14 +135,13 @@ type NodePoolSpec struct {
 	// +optional
 	NodeDrainTimeout *metav1.Duration `json:"nodeDrainTimeout,omitempty"`
 
-	// NodepoolArch is an optional parameter specifying the preferred processor
-	// architecture for the nodepool
+	// Arch is an optional parameter specifying the preferred processor architecture for the NodePool
 	// TODO Add ppc64le and s390x to enum validation once the architectures are supported
 	//
 	// +kubebuilder:default:=x86_64
 	// +kubebuilder:validation:Enum=aarch64;x86_64
 	// +optional
-	NodepoolArch string `json:"nodepoolarch,omitempty"`
+	Arch string `json:"arch,omitempty"`
 }
 
 // NodePoolStatus is the latest observed status of a NodePool.

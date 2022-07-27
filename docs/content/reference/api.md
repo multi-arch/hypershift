@@ -665,15 +665,14 @@ the purpose of the change. In future we plan to propagate this field in-place.
 </tr>
 <tr>
 <td>
-<code>nodepoolarch</code></br>
+<code>arch</code></br>
 <em>
 string
 </em>
 </td>
 <td>
 <em>(Optional)</em>
-<p>NodepoolArch is an optional parameter specifying the preferred processor
-architecture for the nodepool
+<p>Arch is an optional parameter specifying the preferred processor architecture for the NodePool
 TODO Add ppc64le and s390x to enum validation once the architectures are supported</p>
 </td>
 </tr>
@@ -5457,15 +5456,14 @@ the purpose of the change. In future we plan to propagate this field in-place.
 </tr>
 <tr>
 <td>
-<code>nodepoolarch</code></br>
+<code>arch</code></br>
 <em>
 string
 </em>
 </td>
 <td>
 <em>(Optional)</em>
-<p>NodepoolArch is an optional parameter specifying the preferred processor
-architecture for the nodepool
+<p>Arch is an optional parameter specifying the preferred processor architecture for the NodePool
 TODO Add ppc64le and s390x to enum validation once the architectures are supported</p>
 </td>
 </tr>

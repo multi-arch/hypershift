@@ -60,7 +60,7 @@ type CreateOptions struct {
 	ServiceCIDR                      string
 	PodCIDR                          string
 	ExternalDNSDomain                string
-	NodepoolArch                     string
+	Arch                             string
 	NonePlatform                     NonePlatformCreateOptions
 	KubevirtPlatform                 KubevirtPlatformCreateOptions
 	AWSPlatform                      AWSPlatformOptions
@@ -229,7 +229,7 @@ func createCommonFixture(ctx context.Context, opts *CreateOptions) (*apifixtures
 		EtcdStorageClass:                 opts.EtcdStorageClass,
 		ServiceCIDR:                      opts.ServiceCIDR,
 		PodCIDR:                          opts.PodCIDR,
-		NodepoolArch:                     opts.NodepoolArch,
+		Arch:                             opts.Arch,
 	}, nil
 }
 

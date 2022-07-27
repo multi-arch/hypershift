@@ -160,7 +160,7 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 	if opts.AWSPlatform.InstanceType != "" {
 		instanceType = opts.AWSPlatform.InstanceType
 	} else {
-		switch opts.NodepoolArch {
+		switch opts.Arch {
 		case "x86_64":
 			instanceType = "m5.large"
 		case "aarch64":

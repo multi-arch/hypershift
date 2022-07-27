@@ -83,7 +83,7 @@ func (o *AWSPlatformCreateOptions) UpdateNodePool(ctx context.Context, nodePool 
 	if o.InstanceType != "" {
 		instanceType = o.InstanceType
 	} else {
-		switch nodePool.Spec.NodepoolArch {
+		switch nodePool.Spec.Arch {
 		case "x86_64":
 			instanceType = "m5.large"
 		case "aarch64":

@@ -70,7 +70,7 @@ type ExampleOptions struct {
 	AutoRepair                       bool
 	EtcdStorageClass                 string
 	ExternalDNSDomain                string
-	NodepoolArch                     string
+	Arch                             string
 	AWS                              *ExampleAWSOptions
 	None                             *ExampleNoneOptions
 	Agent                            *ExampleAgentOptions
@@ -524,7 +524,7 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 				Platform: hyperv1.NodePoolPlatform{
 					Type: cluster.Spec.Platform.Type,
 				},
-				NodepoolArch: o.NodepoolArch,
+				Arch: o.Arch,
 			},
 		}
 	}
