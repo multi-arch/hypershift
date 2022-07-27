@@ -142,7 +142,7 @@ type NodePoolSpec struct {
 	// +kubebuilder:default:=x86_64
 	// +kubebuilder:validation:Enum=aarch64;x86_64
 	// +optional
-	NodepoolArch string `json:"nodepoolarch"`
+	NodepoolArch string `json:"nodepoolarch,omitempty"`
 }
 
 // NodePoolStatus is the latest observed status of a NodePool.
