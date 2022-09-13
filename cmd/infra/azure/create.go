@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -13,15 +15,21 @@ import (
 
 	apifixtures "github.com/openshift/hypershift/api/fixtures"
 	"github.com/openshift/hypershift/cmd/log"
+	"github.com/openshift/hypershift/support/releaseinfo/registryclient"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	utilpointer "k8s.io/utils/pointer"
 	"sigs.k8s.io/yaml"
 
-	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2021-11-01/compute"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
+	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2021-12-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/dns/mgmt/2018-05-01/dns"
 	"github.com/Azure/azure-sdk-for-go/services/msi/mgmt/2018-11-30/msi"
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2021-05-01/network"
 	"github.com/Azure/azure-sdk-for-go/services/preview/authorization/mgmt/2020-04-01-preview/authorization"
+
 	"github.com/Azure/azure-sdk-for-go/services/privatedns/mgmt/2018-09-01/privatedns"
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2020-10-01/resources"
 	"github.com/Azure/azure-sdk-for-go/services/storage/mgmt/2021-04-01/storage"
@@ -35,6 +43,16 @@ import (
 	"github.com/tombuildsstuff/giovanni/storage/2019-12-12/blob/blobs"
 )
 
+const (
+	DiskName              = "HyperShiftImageGalleryDisk"
+	ArchitectureAMD64     = "amd64"
+	ArchitectureS390X     = "s390x"
+	ArchitecturePPC64LE   = "ppc64le"
+	ArchitectureARM64     = "arm64"
+	Arm64GalleryImageName = "RHCOS_Arm64"
+	Amd64GalleryImageName = "RHCOS_Amd64"
+)
+
 type CreateInfraOptions struct {
 	Name            string
 	BaseDomain      string
@@ -43,6 +61,8 @@ type CreateInfraOptions struct {
 	CredentialsFile string
 	Credentials     *apifixtures.AzureCreds
 	OutputFile      string
+	PullSecret      string
+	ReleaseImage    string
 }
 
 func NewCreateCommand() *cobra.Command {
@@ -121,6 +141,9 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 		if err != nil {
 			return nil, fmt.Errorf("failed to read the credentials: %w", err)
 		}
+		os.Setenv("AZURE_TENANT_ID", creds.TenantID)
+		os.Setenv("AZURE_CLIENT_ID", creds.ClientID)
+		os.Setenv("AZURE_CLIENT_SECRET", creds.ClientSecret)
 		l.Info("Using credentials from file", "path", o.CredentialsFile)
 	}
 
@@ -296,99 +319,86 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 	}
 	l.Info("Successfuly created private DNS zone link")
 
-	storageAccountClient := storage.NewAccountsClient(creds.SubscriptionID)
-	storageAccountClient.Authorizer = authorizer
-
-	storageAccountName := "cluster" + utilrand.String(5)
-	storageAccountFuture, err := storageAccountClient.Create(ctx, *rg.Name, storageAccountName, storage.AccountCreateParameters{
-		Sku:      &storage.Sku{Name: storage.SkuNamePremiumLRS, Tier: storage.SkuTierStandard},
-		Location: utilpointer.String(o.Location),
-	})
+	azureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage account: %w", err)
+		return nil, fmt.Errorf("failed to create Azure credentials to create image gallery: %w", err)
 	}
-	if err := storageAccountFuture.WaitForCompletionRef(ctx, storageAccountClient.Client); err != nil {
-		return nil, fmt.Errorf("failed waiting for storage account creation to complete: %w", err)
-	}
-	l.Info("Successfuly created storage account", "name", storageAccountName)
 
-	blobContainersClient := storage.NewBlobContainersClient(creds.SubscriptionID)
-	blobContainersClient.Authorizer = authorizer
-
-	imageContainer, err := blobContainersClient.Create(ctx, *rg.Name, storageAccountName, "vhd", storage.BlobContainer{})
+	disk, err := createDisk(ctx, resourceGroupName, creds.SubscriptionID, o.Location, azureCreds)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create blob container: %w", err)
+		return nil, fmt.Errorf("failed to create disk for image gallery: %w", err)
 	}
-	l.Info("Successflly created blobcontainer", "name", *imageContainer.Name)
+	l.Info("Created image gallery disk: " + *disk.ID) // TODO Remove this after testing
 
-	// TODO: Extract this from the release image or require a parameter
-	// Extraction is done like this:
-	// docker run --rm -it --entrypoint cat quay.io/openshift-release-dev/ocp-release:4.10.0-rc.0-x86_64 release-manifests/0000_50_installer_coreos-bootimages.yaml |yaml2json |jq .data.stream -r|jq '.architectures.x86_64["rhel-coreos-extensions"]["azure-disk"].url'
-	sourceURL := "https://rhcos.blob.core.windows.net/imagebucket/rhcos-49.84.202110081407-0-azure.x86_64.vhd"
-	blobName := "rhcos.x86_64.vhd"
+	// Create a image gallery with a unique identifier since Azure only allows one named image gallery instance type per subscription rather than per resource group
+	imageGalleryName := "BootImageGallery_" + utilrand.String(5)
 
-	// Explicitly check this, Azure API makes inferring the problem from the error message extremely hard
-	if !strings.HasPrefix(sourceURL, "https://rhcos.blob.core.windows.net") {
-		return nil, fmt.Errorf("the image source url must be from an azure blob storage, otherwise upload will fail with an `One of the request inputs is out of range` error")
-	}
-
-	// storage object access has its own authentication system: https://github.com/hashicorp/terraform-provider-azurerm/blob/b0c897055329438be6a3a159f6ffac4e1ce958f2/internal/services/storage/client/client.go#L133
-	accountsClient := storage.NewAccountsClient(creds.SubscriptionID)
-	accountsClient.Authorizer = authorizer
-	storageAccountKeyResult, err := accountsClient.ListKeys(ctx, resourceGroupName, storageAccountName, storage.ListKeyExpandKerb)
+	gallery, err := createGallery(ctx, resourceGroupName, imageGalleryName, creds.SubscriptionID, o.Location, azureCreds, *disk.ID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list storage account keys: %w", err)
+		return nil, fmt.Errorf("failed to create image gallery: %w", err)
 	}
-	if storageAccountKeyResult.Keys == nil || len(*storageAccountKeyResult.Keys) == 0 || (*storageAccountKeyResult.Keys)[0].Value == nil {
-		return nil, errors.New("no storage account keys exist")
-	}
-	blobAuth, err := autorest.NewSharedKeyAuthorizer(storageAccountName, *(*storageAccountKeyResult.Keys)[0].Value, autorest.SharedKey)
+	l.Info("Successfully created image gallery: " + *gallery.ID)
+
+	// Create RHCOS Image Containers
+	pullSecret, err := ioutil.ReadFile(o.PullSecret)
 	if err != nil {
-		return nil, fmt.Errorf("failed to construct storage object authorizer: %w", err)
+		return nil, fmt.Errorf("failed to read pull secret file: %w", err)
 	}
 
-	blobClient := blobs.New()
-	blobClient.Authorizer = blobAuth
-	l.Info("Uploading rhcos image", "source", sourceURL)
-	input := blobs.CopyInput{
-		CopySource: sourceURL,
-		MetaData: map[string]string{
-			"source_uri": sourceURL,
-		},
-	}
-	if err := blobClient.CopyAndWait(ctx, storageAccountName, "vhd", blobName, input, 5*time.Second); err != nil {
-		return nil, fmt.Errorf("failed to upload rhcos image: %w", err)
-	}
-	l.Info("Successfully uploaded rhcos image")
-
-	imagesClient := compute.NewImagesClient(creds.SubscriptionID)
-	imagesClient.Authorizer = authorizer
-
-	imageBlobURL := "https://" + storageAccountName + ".blob.core.windows.net/" + "vhd" + "/" + blobName
-	imageInput := compute.Image{
-		ImageProperties: &compute.ImageProperties{
-			StorageProfile: &compute.ImageStorageProfile{OsDisk: &compute.ImageOSDisk{
-				OsType:  compute.OperatingSystemTypesLinux,
-				OsState: compute.OperatingSystemStateTypesGeneralized,
-				BlobURI: &imageBlobURL,
-			}},
-			HyperVGeneration: compute.HyperVGenerationTypesV1,
-		},
-		Location: utilpointer.String(o.Location),
-	}
-	imageCreationFuture, err := imagesClient.CreateOrUpdate(ctx, resourceGroupName, blobName, imageInput)
+	isManifestListImage, err := registryclient.IsMultiArchManifestList(ctx, o.ReleaseImage, pullSecret)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create image: %w", err)
+		return nil, fmt.Errorf("failed to determine if image is manifest listed: %w", err)
 	}
-	if err := imageCreationFuture.WaitForCompletionRef(ctx, imagesClient.Client); err != nil {
-		return nil, fmt.Errorf("failed to wait for image creation to finish: %w", err)
+
+	// TODO do we need limit when we cycle thru this code; like should we only do this if the current OS is arm or if the nodepool arch selected is arm or something else
+	if isManifestListImage {
+		// Verify manifest image contains current hosted architecture
+		// Right now, we only care about adding in an ARM VHD; s390/ppc won't exist in azure for a while
+		os := runtime.GOOS
+
+		_, err = registryclient.FindArchManifest(ctx, o.ReleaseImage, pullSecret, os, ArchitectureARM64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find current os/arch to pull rhcos image - os: %s, arch: %s", os, ArchitectureARM64)
+		}
+
+		result.BootImageID, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, ArchitectureARM64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create RHCOS ARM image container: %w", err)
+		}
+
+		imageDefinitionID, err := createGalleryImageDefinition(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Arm64GalleryImageName, ArchitectureARM64, result.BootImageID, azureCreds)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create image definition for %s: %w", Arm64GalleryImageName, err)
+		}
+		l.Info("Successfully created image definition for " + Arm64GalleryImageName + ", ID: " + imageDefinitionID)
+
+		l.Info("Creating image definition version for " + Arm64GalleryImageName)
+		imageGalleryVersionID, err := createGalleryImageDefinitionVersion(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Arm64GalleryImageName, ArchitectureARM64, result.BootImageID, azureCreds)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create image definition version for %s: %w", Arm64GalleryImageName, err)
+		}
+
+		l.Info("Successfully created image version for " + Arm64GalleryImageName + ", ID: " + imageGalleryVersionID)
 	}
-	imageCreationResult, err := imageCreationFuture.Result(imagesClient)
+
+	result.BootImageID, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, ArchitectureAMD64)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get imageCreationResult: %w", err)
+		return nil, fmt.Errorf("failed to create x86 RHCOS image container: %w", err)
 	}
-	result.BootImageID = *imageCreationResult.ID
-	l.Info("Successfully created image", "resourceID", *imageCreationResult.ID, "result", imageCreationResult)
+
+	imageDefinitionID, err := createGalleryImageDefinition(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Amd64GalleryImageName, ArchitectureAMD64, result.BootImageID, azureCreds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create image definition for %s: %w", Amd64GalleryImageName, err)
+	}
+	l.Info("Successfully created image definition for " + Amd64GalleryImageName + ", ID: " + imageDefinitionID)
+
+	l.Info("Creating image definition version for " + Amd64GalleryImageName)
+	imageGalleryVersionID, err := createGalleryImageDefinitionVersion(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Amd64GalleryImageName, ArchitectureAMD64, result.BootImageID, azureCreds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create image definition version for %s: %w", Amd64GalleryImageName, err)
+	}
+
+	l.Info("Successfully created image version for " + Amd64GalleryImageName + ", ID: " + imageGalleryVersionID)
 
 	if o.OutputFile != "" {
 		resultSerialized, err := yaml.Marshal(result)
@@ -397,13 +407,122 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 		}
 		if err := ioutil.WriteFile(o.OutputFile, resultSerialized, 0644); err != nil {
 			// Be nice and print the data so it doesn't get lost
-			l.Error(err, "Writing output file failed", "outputfile", o.OutputFile, "data", string(resultSerialized))
+			log.Log.Error(err, "Writing output file failed", "outputfile", o.OutputFile, "data", string(resultSerialized))
 			return nil, fmt.Errorf("failed to write result to --output-file: %w", err)
 		}
 	}
 
 	return &result, nil
+}
 
+func createRHCOSImageContainer(ctx context.Context, creds *apifixtures.AzureCreds, authorizer autorest.Authorizer, rg resources.Group, resourceGroupName string, location string, arch string) (bootImageID string, err error) {
+	storageAccountClient := storage.NewAccountsClient(creds.SubscriptionID)
+	storageAccountClient.Authorizer = authorizer
+
+	storageAccountName := "cluster" + utilrand.String(5)
+	storageAccountFuture, err := storageAccountClient.Create(ctx, *rg.Name, storageAccountName, storage.AccountCreateParameters{
+		Sku:      &storage.Sku{Name: storage.SkuNamePremiumLRS, Tier: storage.SkuTierStandard},
+		Location: utilpointer.String(location),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create storage account: %w", err)
+	}
+	if err := storageAccountFuture.WaitForCompletionRef(ctx, storageAccountClient.Client); err != nil {
+		return "", fmt.Errorf("failed waiting for storage account creation to complete: %w", err)
+	}
+	log.Log.Info("Successfuly created storage account", "name", storageAccountName)
+
+	blobContainersClient := storage.NewBlobContainersClient(creds.SubscriptionID)
+	blobContainersClient.Authorizer = authorizer
+
+	vhd := "vhd-" + arch
+	imageContainer, err := blobContainersClient.Create(ctx, *rg.Name, storageAccountName, vhd, storage.BlobContainer{})
+	if err != nil {
+		return "", fmt.Errorf("failed to create blob container: %w", err)
+	}
+	log.Log.Info("Successflly created blobcontainer", "name", *imageContainer.Name)
+
+	// TODO: Extract this from the release image or require a parameter
+	// Extraction is done like this:
+	// docker run --rm -it --entrypoint cat quay.io/openshift-release-dev/ocp-release:4.10.0-rc.0-x86_64 release-manifests/0000_50_installer_coreos-bootimages.yaml |yaml2json |jq .data.stream -r|jq '.architectures.x86_64["rhel-coreos-extensions"]["azure-disk"].url'
+	sourceURL, blobName := "", ""
+	hyperVGenerationType := compute.HyperVGenerationTypesV1
+	switch arch {
+	case ArchitectureAMD64:
+		sourceURL = "https://rhcos.blob.core.windows.net/imagebucket/rhcos-49.84.202110081407-0-azure.x86_64.vhd"
+		blobName = "rhcos.x86_64.vhd"
+	case ArchitectureARM64:
+		sourceURL = "https://rhcos.blob.core.windows.net/imagebucket/rhcos-411.86.202206242256-0-azure.aarch64.vhd"
+		blobName = "rhcos.aarch64.vhd"
+		hyperVGenerationType = compute.HyperVGenerationTypesV2
+	default:
+		return "", fmt.Errorf("architecture not supported in manifest image, %s", arch)
+	}
+
+	// Explicitly check this, Azure API makes inferring the problem from the error message extremely hard
+	if !strings.HasPrefix(sourceURL, "https://rhcos.blob.core.windows.net") {
+		return "", fmt.Errorf("the image source url must be from an azure blob storage, otherwise upload will fail with an `One of the request inputs is out of range` error")
+	}
+
+	// storage object access has its own authentication system: https://github.com/hashicorp/terraform-provider-azurerm/blob/b0c897055329438be6a3a159f6ffac4e1ce958f2/internal/services/storage/client/client.go#L133
+	accountsClient := storage.NewAccountsClient(creds.SubscriptionID)
+	accountsClient.Authorizer = authorizer
+	storageAccountKeyResult, err := accountsClient.ListKeys(ctx, resourceGroupName, storageAccountName, storage.ListKeyExpandKerb)
+	if err != nil {
+		return "", fmt.Errorf("failed to list storage account keys: %w", err)
+	}
+	if storageAccountKeyResult.Keys == nil || len(*storageAccountKeyResult.Keys) == 0 || (*storageAccountKeyResult.Keys)[0].Value == nil {
+		return "", errors.New("no storage account keys exist")
+	}
+	blobAuth, err := autorest.NewSharedKeyAuthorizer(storageAccountName, *(*storageAccountKeyResult.Keys)[0].Value, autorest.SharedKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to construct storage object authorizer: %w", err)
+	}
+
+	blobClient := blobs.New()
+	blobClient.Authorizer = blobAuth
+	log.Log.Info("Uploading rhcos image", "source", sourceURL)
+	input := blobs.CopyInput{
+		CopySource: sourceURL,
+		MetaData: map[string]string{
+			"source_uri": sourceURL,
+		},
+	}
+	if err := blobClient.CopyAndWait(ctx, storageAccountName, vhd, blobName, input, 5*time.Second); err != nil {
+		return "", fmt.Errorf("failed to upload rhcos image: %w", err)
+	}
+	log.Log.Info("Successfully uploaded rhcos image")
+
+	imagesClient := compute.NewImagesClient(creds.SubscriptionID)
+	imagesClient.Authorizer = authorizer
+
+	imageBlobURL := "https://" + storageAccountName + ".blob.core.windows.net/" + vhd + "/" + blobName
+	imageInput := compute.Image{
+		ImageProperties: &compute.ImageProperties{
+			StorageProfile: &compute.ImageStorageProfile{OsDisk: &compute.ImageOSDisk{
+				OsType:  compute.OperatingSystemTypesLinux,
+				OsState: compute.OperatingSystemStateTypesGeneralized,
+				BlobURI: &imageBlobURL,
+			}},
+			HyperVGeneration: hyperVGenerationType,
+		},
+		Location: utilpointer.String(location),
+	}
+	imageCreationFuture, err := imagesClient.CreateOrUpdate(ctx, resourceGroupName, blobName, imageInput)
+	if err != nil {
+		return "", fmt.Errorf("failed to create image: %w", err)
+	}
+	if err := imageCreationFuture.WaitForCompletionRef(ctx, imagesClient.Client); err != nil {
+		return "", fmt.Errorf("failed to wait for image creation to finish: %w", err)
+	}
+	imageCreationResult, err := imageCreationFuture.Result(imagesClient)
+	if err != nil {
+		return "", fmt.Errorf("failed to get imageCreationResult: %w", err)
+	}
+	bootImageID = *imageCreationResult.ID
+	log.Log.Info("Successfully created image", "resourceID", *imageCreationResult.ID, "result", imageCreationResult)
+
+	return bootImageID, nil
 }
 
 func findDNSZone(ctx context.Context, client dns.ZonesClient, name string) (*dns.Zone, error) {
@@ -423,4 +542,163 @@ func findDNSZone(ctx context.Context, client dns.ZonesClient, name string) (*dns
 	}
 
 	return nil, fmt.Errorf("no dns zone with name %s found", name)
+}
+
+func createGallery(ctx context.Context, resourceGroupName string, imageGalleryName string, subscriptionID string, location string, cred azcore.TokenCredential, diskID string) (*armcompute.Gallery, error) {
+	galleriesClient, err := armcompute.NewGalleriesClient(subscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	pollerResp, err := galleriesClient.BeginCreateOrUpdate(
+		ctx,
+		resourceGroupName,
+		imageGalleryName,
+		armcompute.Gallery{
+			Location: to.Ptr(location),
+			Properties: &armcompute.GalleryProperties{
+				Description: to.Ptr("Contains boot images to initialize NodePool nodes"),
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := pollerResp.PollUntilDone(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp.Gallery, nil
+}
+
+func createDisk(ctx context.Context, resourceGroupName string, subscriptionID string, location string, cred azcore.TokenCredential) (*armcompute.Disk, error) {
+	disksClient, err := armcompute.NewDisksClient(subscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	pollerResp, err := disksClient.BeginCreateOrUpdate(
+		ctx,
+		resourceGroupName,
+		DiskName,
+		armcompute.Disk{
+			Location: to.Ptr(location),
+			SKU: &armcompute.DiskSKU{
+				Name: to.Ptr(armcompute.DiskStorageAccountTypesStandardLRS),
+			},
+			Properties: &armcompute.DiskProperties{
+				CreationData: &armcompute.CreationData{
+					CreateOption: to.Ptr(armcompute.DiskCreateOptionEmpty),
+				},
+				DiskSizeGB: to.Ptr[int32](128),
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := pollerResp.PollUntilDone(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp.Disk, nil
+}
+
+func createGalleryImageDefinition(ctx context.Context, location string, resourceGroupName string, imageGalleryName, subscriptionID string, imageDefinitionName string, arch string, bootImageID string, azureCreds azcore.TokenCredential) (string, error) {
+	var galleryImageProperties *armcompute.GalleryImageProperties
+
+	switch arch {
+	case ArchitectureARM64:
+		galleryImageProperties = &armcompute.GalleryImageProperties{
+			OSType:           to.Ptr(armcompute.OperatingSystemTypesLinux),
+			OSState:          to.Ptr(armcompute.OperatingSystemStateTypesGeneralized),
+			HyperVGeneration: to.Ptr(armcompute.HyperVGenerationV2),
+			Identifier: &armcompute.GalleryImageIdentifier{
+				Offer:     to.Ptr("myPublisherName"), // TODO what should go here on for offer, publisher, sku?
+				Publisher: to.Ptr("myOfferName"),
+				SKU:       to.Ptr("mySkuName"),
+			},
+			Architecture: to.Ptr(armcompute.ArchitectureArm64),
+		}
+	case ArchitectureAMD64:
+		galleryImageProperties = &armcompute.GalleryImageProperties{
+			OSType:           to.Ptr(armcompute.OperatingSystemTypesLinux),
+			OSState:          to.Ptr(armcompute.OperatingSystemStateTypesGeneralized),
+			HyperVGeneration: to.Ptr(armcompute.HyperVGenerationV1),
+			Identifier: &armcompute.GalleryImageIdentifier{
+				Offer:     to.Ptr("myPublisherNamee"),
+				Publisher: to.Ptr("myOfferNamee"),
+				SKU:       to.Ptr("mySkuNamee"),
+			},
+			Architecture: to.Ptr(armcompute.ArchitectureX64),
+		}
+	default:
+		return "", fmt.Errorf("failed to create image definition. Architecture not supported for %s", arch)
+	}
+
+	imageTemplate := armcompute.GalleryImage{
+		Location:   to.Ptr(location),
+		Properties: galleryImageProperties,
+	}
+
+	galleryImageDefinition, err := createImageDefinition(ctx, resourceGroupName, imageGalleryName, subscriptionID, imageDefinitionName, azureCreds, imageTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to create image definition for %s: %w", imageDefinitionName, err)
+	}
+
+	return *galleryImageDefinition.ID, nil
+}
+
+func createImageDefinition(ctx context.Context, resourceGroupName string, imageGalleryName string, subscriptionID string, galleryImageName string, cred azcore.TokenCredential, galleryImage armcompute.GalleryImage) (*armcompute.GalleryImage, error) {
+	galleryImageClient, err := armcompute.NewGalleryImagesClient(subscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	pollerResp, err := galleryImageClient.BeginCreateOrUpdate(ctx, resourceGroupName, imageGalleryName, galleryImageName, galleryImage, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := pollerResp.PollUntilDone(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &resp.GalleryImage, nil
+}
+
+func createGalleryImageDefinitionVersion(ctx context.Context, location string, resourceGroupName string, imageGalleryName string, subscriptionID string, galleryImageName string, architecture string, bootImageID string, azureCreds azcore.TokenCredential) (string, error) {
+	galleryImageVersionClient, err := armcompute.NewGalleryImageVersionsClient(subscriptionID, azureCreds, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create a gallery image version client for %s: %w", galleryImageName, err)
+	}
+
+	galleryImageVersion := armcompute.GalleryImageVersion{
+		Location: to.Ptr(location),
+		Properties: &armcompute.GalleryImageVersionProperties{
+			StorageProfile: &armcompute.GalleryImageVersionStorageProfile{
+				Source: &armcompute.GalleryArtifactVersionSource{
+					ID: to.Ptr(bootImageID),
+				},
+			},
+		},
+	}
+
+	imageVersionRsp, err := galleryImageVersionClient.BeginCreateOrUpdate(ctx, resourceGroupName, imageGalleryName, galleryImageName, "1.0.0", galleryImageVersion, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed create image definition version for %s: %w", galleryImageName, err)
+	}
+	resp, err := imageVersionRsp.PollUntilDone(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed waiting for image definition version creation to finish for %s: %w", galleryImageName, err)
+	}
+
+	return *resp.ID, nil
 }
