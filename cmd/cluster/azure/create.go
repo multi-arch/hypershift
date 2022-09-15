@@ -25,8 +25,9 @@ func NewCreateCommand(opts *core.CreateOptions) *cobra.Command {
 	}
 
 	opts.AzurePlatform.Location = "eastus"
-	opts.AzurePlatform.InstanceType = "Standard_D4s_v4"
+	opts.AzurePlatform.InstanceType = ""
 	opts.AzurePlatform.DiskSizeGB = 120
+
 	cmd.Flags().StringVar(&opts.AzurePlatform.CredentialsFile, "azure-creds", opts.AzurePlatform.CredentialsFile, "Path to an Azure credentials file (required)")
 	cmd.Flags().StringVar(&opts.AzurePlatform.Location, "location", opts.AzurePlatform.Location, "Location for the cluster")
 	cmd.Flags().StringVar(&opts.AzurePlatform.InstanceType, "instance-type", opts.AzurePlatform.InstanceType, "The instance type to use for nodes")
@@ -92,6 +93,19 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		}
 	}
 
+	var instanceType string
+	if opts.AzurePlatform.InstanceType != "" {
+		instanceType = opts.AzurePlatform.InstanceType
+	} else {
+		// Aligning with Azure IPI instance type defaults
+		switch opts.AzurePlatform.InstanceType {
+		case "amd64":
+			instanceType = "Standard_D4s_v4"
+		case "arm64":
+			instanceType = "Standard_D4ps_v5"
+		}
+	}
+
 	exampleOptions.BaseDomain = infra.BaseDomain
 	exampleOptions.PublicZoneID = infra.PublicZoneID
 	exampleOptions.PrivateZoneID = infra.PrivateZoneID
@@ -104,7 +118,7 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		SubnetName:        infra.SubnetName,
 		BootImageID:       infra.BootImageID,
 		MachineIdentityID: infra.MachineIdentityID,
-		InstanceType:      opts.AzurePlatform.InstanceType,
+		InstanceType:      instanceType,
 		SecurityGroupName: infra.SecurityGroupName,
 		DiskSizeGB:        opts.AzurePlatform.DiskSizeGB,
 		AvailabilityZones: opts.AzurePlatform.AvailabilityZones,

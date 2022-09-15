@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 	utilpointer "k8s.io/utils/pointer"
@@ -24,9 +25,15 @@ func azureMachineTemplateSpec(hcluster *hyperv1.HostedCluster, nodePool *hyperv1
 			return nil, fmt.Errorf("failed to generate a SSH key: %w", err)
 		}
 	}
+
+	bootImageToUse, err := bootImage(hcluster, nodePool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find boot image: %w", err)
+	}
+
 	return &capiazure.AzureMachineTemplateSpec{Template: capiazure.AzureMachineTemplateResource{Spec: capiazure.AzureMachineSpec{
 		VMSize: nodePool.Spec.Platform.Azure.VMSize,
-		Image:  &capiazure.Image{ID: utilpointer.String(bootImage(hcluster, nodePool))},
+		Image:  &capiazure.Image{ID: utilpointer.String(bootImageToUse)},
 		OSDisk: capiazure.OSDisk{
 			DiskSizeGB: utilpointer.Int32Ptr(nodePool.Spec.Platform.Azure.DiskSizeGB),
 			ManagedDisk: &capiazure.ManagedDiskParameters{
@@ -55,11 +62,27 @@ func generateSSHPubkey() (string, error) {
 	return base64.StdEncoding.EncodeToString(ssh.MarshalAuthorizedKey(publicRsaKey)), nil
 }
 
-func bootImage(hcluster *hyperv1.HostedCluster, nodepool *hyperv1.NodePool) string {
+func bootImage(hcluster *hyperv1.HostedCluster, nodepool *hyperv1.NodePool) (string, error) {
 	if nodepool.Spec.Platform.Azure.ImageID != "" {
-		return nodepool.Spec.Platform.Azure.ImageID
+		return nodepool.Spec.Platform.Azure.ImageID, nil
 	}
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/images/rhcos.x86_64.vhd", hcluster.Spec.Platform.Azure.SubscriptionID, hcluster.Spec.Platform.Azure.ResourceGroupName)
+
+	var bootImageGalleyID string
+	splitResourceGroupName := strings.Split(hcluster.Spec.Platform.Azure.ResourceGroupName, "-")
+	if len(splitResourceGroupName) <= 0 {
+		return "", fmt.Errorf("failed to parse resource group name unique ID to retrieve boot image: %s", hcluster.Spec.Platform.Azure.ResourceGroupName)
+	} else {
+		bootImageGalleyID = splitResourceGroupName[len(splitResourceGroupName)-1]
+	}
+
+	switch nodepool.Spec.Arch {
+	case "amd64":
+		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/galleries/BootImageGallery_%s/images/RHCOS_Amd64/versions/1.0.0", hcluster.Spec.Platform.Azure.SubscriptionID, hcluster.Spec.Platform.Azure.ResourceGroupName, bootImageGalleyID), nil
+	case "arm64":
+		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/galleries/BootImageGallery_%s/images/RHCOS_Arm64/versions/1.0.0", hcluster.Spec.Platform.Azure.SubscriptionID, hcluster.Spec.Platform.Azure.ResourceGroupName, bootImageGalleyID), nil
+	default:
+		return "", fmt.Errorf("invalid boot architecture received: %s", nodepool.Spec.Arch)
+	}
 }
 
 func failureDomain(nodepool *hyperv1.NodePool) *string {

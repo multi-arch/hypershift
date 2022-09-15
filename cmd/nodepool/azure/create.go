@@ -20,7 +20,7 @@ func NewCreateCommand(coreOpts *core.CreateNodePoolOptions) *cobra.Command {
 		SilenceUsage: true,
 	}
 	o := &opts{
-		instanceType: "Standard_D4s_v4",
+		instanceType: "",
 		diskSize:     120,
 	}
 	cmd.Flags().StringVar(&o.instanceType, "instance-type", o.instanceType, "The instance type to use for the nodepool")
@@ -53,8 +53,22 @@ type opts struct {
 
 func (o *opts) UpdateNodePool(ctx context.Context, nodePool *hyperv1.NodePool, hcluster *hyperv1.HostedCluster, client crclient.Client) error {
 	nodePool.Spec.Platform.Type = hyperv1.AzurePlatform
+
+	var instanceType string
+	if o.instanceType != "" {
+		instanceType = o.instanceType
+	} else {
+		// Aligning with Azure IPI instance type defaults
+		switch nodePool.Spec.Arch {
+		case "amd64":
+			instanceType = "Standard_D4s_v4"
+		case "arm64":
+			instanceType = "Standard_D4ps_v5"
+		}
+	}
+
 	nodePool.Spec.Platform.Azure = &hyperv1.AzureNodePoolPlatform{
-		VMSize:           o.instanceType,
+		VMSize:           instanceType,
 		DiskSizeGB:       o.diskSize,
 		AvailabilityZone: o.availabilityZone,
 	}

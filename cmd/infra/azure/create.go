@@ -65,6 +65,18 @@ type CreateInfraOptions struct {
 	ReleaseImage    string
 }
 
+type GalleryImageDefinitionOptions struct {
+	Context             context.Context
+	Location            string
+	ResourceGroupName   string
+	ImageGalleryName    string
+	SubscriptionID      string
+	ImageDefinitionName string
+	Arch                string
+	BootImageID         string
+	AzureCreds          azcore.TokenCredential
+}
+
 func NewCreateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "azure",
@@ -328,10 +340,17 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 	if err != nil {
 		return nil, fmt.Errorf("failed to create disk for image gallery: %w", err)
 	}
-	l.Info("Created image gallery disk: " + *disk.ID) // TODO Remove this after testing
 
 	// Create a image gallery with a unique identifier since Azure only allows one named image gallery instance type per subscription rather than per resource group
-	imageGalleryName := "BootImageGallery_" + utilrand.String(5)
+	var imageGalleryName string
+	splitInfra := strings.Split(o.InfraID, "-")
+
+	if len(splitInfra) <= 0 {
+		return nil, fmt.Errorf("failed to parse infraID to generate unique identifier for BootImageGallery: %s", o.InfraID)
+	} else {
+		imageGalleryName = "BootImageGallery_" + splitInfra[len(splitInfra)-1]
+	}
+	
 
 	gallery, err := createGallery(ctx, resourceGroupName, imageGalleryName, creds.SubscriptionID, o.Location, azureCreds, *disk.ID)
 	if err != nil {
@@ -350,6 +369,15 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 		return nil, fmt.Errorf("failed to determine if image is manifest listed: %w", err)
 	}
 
+	imageDefinitionOptions := &GalleryImageDefinitionOptions{
+		Context:           ctx,
+		Location:          o.Location,
+		ResourceGroupName: resourceGroupName,
+		ImageGalleryName:  imageGalleryName,
+		SubscriptionID:    creds.SubscriptionID,
+		AzureCreds:        azureCreds,
+	}
+
 	// TODO do we need limit when we cycle thru this code; like should we only do this if the current OS is arm or if the nodepool arch selected is arm or something else
 	if isManifestListImage {
 		// Verify manifest image contains current hosted architecture
@@ -366,19 +394,23 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 			return nil, fmt.Errorf("failed to create RHCOS ARM image container: %w", err)
 		}
 
-		imageDefinitionID, err := createGalleryImageDefinition(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Arm64GalleryImageName, ArchitectureARM64, result.BootImageID, azureCreds)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create image definition for %s: %w", Arm64GalleryImageName, err)
-		}
-		l.Info("Successfully created image definition for " + Arm64GalleryImageName + ", ID: " + imageDefinitionID)
+		imageDefinitionOptions.Arch = ArchitectureARM64
+		imageDefinitionOptions.BootImageID = result.BootImageID
+		imageDefinitionOptions.ImageDefinitionName = Arm64GalleryImageName
 
-		l.Info("Creating image definition version for " + Arm64GalleryImageName)
-		imageGalleryVersionID, err := createGalleryImageDefinitionVersion(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Arm64GalleryImageName, ArchitectureARM64, result.BootImageID, azureCreds)
+		imageDefinitionID, err := createGalleryImageDefinition(imageDefinitionOptions)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create image definition version for %s: %w", Arm64GalleryImageName, err)
+			return nil, fmt.Errorf("failed to create image definition for %s: %w", imageDefinitionOptions.ImageDefinitionName, err)
+		}
+		l.Info("Successfully created image definition for " + imageDefinitionOptions.ImageDefinitionName + ", ID: " + imageDefinitionID)
+
+		l.Info("Creating image definition version for " + imageDefinitionOptions.ImageDefinitionName)
+		imageGalleryVersionID, err := createGalleryImageDefinitionVersion(imageDefinitionOptions)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create image definition version for %s: %w", imageDefinitionOptions.ImageDefinitionName, err)
 		}
 
-		l.Info("Successfully created image version for " + Arm64GalleryImageName + ", ID: " + imageGalleryVersionID)
+		l.Info("Successfully created image version for " + imageDefinitionOptions.ImageDefinitionName + ", ID: " + imageGalleryVersionID)
 	}
 
 	result.BootImageID, err = createRHCOSImageContainer(ctx, creds, authorizer, rg, resourceGroupName, o.Location, ArchitectureAMD64)
@@ -386,19 +418,23 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 		return nil, fmt.Errorf("failed to create x86 RHCOS image container: %w", err)
 	}
 
-	imageDefinitionID, err := createGalleryImageDefinition(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Amd64GalleryImageName, ArchitectureAMD64, result.BootImageID, azureCreds)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create image definition for %s: %w", Amd64GalleryImageName, err)
-	}
-	l.Info("Successfully created image definition for " + Amd64GalleryImageName + ", ID: " + imageDefinitionID)
+	imageDefinitionOptions.Arch = ArchitectureAMD64
+	imageDefinitionOptions.BootImageID = result.BootImageID
+	imageDefinitionOptions.ImageDefinitionName = Amd64GalleryImageName
 
-	l.Info("Creating image definition version for " + Amd64GalleryImageName)
-	imageGalleryVersionID, err := createGalleryImageDefinitionVersion(ctx, o.Location, resourceGroupName, imageGalleryName, creds.SubscriptionID, Amd64GalleryImageName, ArchitectureAMD64, result.BootImageID, azureCreds)
+	imageDefinitionID, err := createGalleryImageDefinition(imageDefinitionOptions)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create image definition version for %s: %w", Amd64GalleryImageName, err)
+		return nil, fmt.Errorf("failed to create image definition for %s: %w", imageDefinitionOptions.ImageDefinitionName, err)
+	}
+	l.Info("Successfully created image definition for " + imageDefinitionOptions.ImageDefinitionName + ", ID: " + imageDefinitionID)
+
+	l.Info("Creating image definition version for " + imageDefinitionOptions.ImageDefinitionName)
+	imageGalleryVersionID, err := createGalleryImageDefinitionVersion(imageDefinitionOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create image definition version for %s: %w", imageDefinitionOptions.ImageDefinitionName, err)
 	}
 
-	l.Info("Successfully created image version for " + Amd64GalleryImageName + ", ID: " + imageGalleryVersionID)
+	l.Info("Successfully created image version for " + imageDefinitionOptions.ImageDefinitionName + ", ID: " + imageGalleryVersionID)
 
 	if o.OutputFile != "" {
 		resultSerialized, err := yaml.Marshal(result)
@@ -610,63 +646,60 @@ func createDisk(ctx context.Context, resourceGroupName string, subscriptionID st
 	return &resp.Disk, nil
 }
 
-func createGalleryImageDefinition(ctx context.Context, location string, resourceGroupName string, imageGalleryName, subscriptionID string, imageDefinitionName string, arch string, bootImageID string, azureCreds azcore.TokenCredential) (string, error) {
-	var galleryImageProperties *armcompute.GalleryImageProperties
+func createGalleryImageDefinition(imageDefinitionOptions *GalleryImageDefinitionOptions) (string, error) {
+	galleryImageIdentifier := &armcompute.GalleryImageIdentifier{
+		Offer:     to.Ptr("RedHat"),
+		Publisher: to.Ptr("rhcos"),
+		SKU:       to.Ptr("basic"),
+	}
+	galleryImageProperties := &armcompute.GalleryImageProperties{
+		Identifier: galleryImageIdentifier,
+	}
 
-	switch arch {
+	switch imageDefinitionOptions.Arch {
 	case ArchitectureARM64:
 		galleryImageProperties = &armcompute.GalleryImageProperties{
 			OSType:           to.Ptr(armcompute.OperatingSystemTypesLinux),
 			OSState:          to.Ptr(armcompute.OperatingSystemStateTypesGeneralized),
 			HyperVGeneration: to.Ptr(armcompute.HyperVGenerationV2),
-			Identifier: &armcompute.GalleryImageIdentifier{
-				Offer:     to.Ptr("myPublisherName"), // TODO what should go here on for offer, publisher, sku?
-				Publisher: to.Ptr("myOfferName"),
-				SKU:       to.Ptr("mySkuName"),
-			},
-			Architecture: to.Ptr(armcompute.ArchitectureArm64),
+			Architecture:     to.Ptr(armcompute.ArchitectureArm64),
 		}
 	case ArchitectureAMD64:
 		galleryImageProperties = &armcompute.GalleryImageProperties{
 			OSType:           to.Ptr(armcompute.OperatingSystemTypesLinux),
 			OSState:          to.Ptr(armcompute.OperatingSystemStateTypesGeneralized),
 			HyperVGeneration: to.Ptr(armcompute.HyperVGenerationV1),
-			Identifier: &armcompute.GalleryImageIdentifier{
-				Offer:     to.Ptr("myPublisherNamee"),
-				Publisher: to.Ptr("myOfferNamee"),
-				SKU:       to.Ptr("mySkuNamee"),
-			},
-			Architecture: to.Ptr(armcompute.ArchitectureX64),
+			Architecture:     to.Ptr(armcompute.ArchitectureX64),
 		}
 	default:
-		return "", fmt.Errorf("failed to create image definition. Architecture not supported for %s", arch)
+		return "", fmt.Errorf("failed to create image definition. Architecture not supported for %s", imageDefinitionOptions.Arch)
 	}
 
 	imageTemplate := armcompute.GalleryImage{
-		Location:   to.Ptr(location),
+		Location:   to.Ptr(imageDefinitionOptions.Location),
 		Properties: galleryImageProperties,
 	}
 
-	galleryImageDefinition, err := createImageDefinition(ctx, resourceGroupName, imageGalleryName, subscriptionID, imageDefinitionName, azureCreds, imageTemplate)
+	galleryImageDefinition, err := createImageDefinition(imageDefinitionOptions, imageTemplate)
 	if err != nil {
-		return "", fmt.Errorf("failed to create image definition for %s: %w", imageDefinitionName, err)
+		return "", fmt.Errorf("failed to create image definition for %s: %w", imageDefinitionOptions.ImageDefinitionName, err)
 	}
 
 	return *galleryImageDefinition.ID, nil
 }
 
-func createImageDefinition(ctx context.Context, resourceGroupName string, imageGalleryName string, subscriptionID string, galleryImageName string, cred azcore.TokenCredential, galleryImage armcompute.GalleryImage) (*armcompute.GalleryImage, error) {
-	galleryImageClient, err := armcompute.NewGalleryImagesClient(subscriptionID, cred, nil)
+func createImageDefinition(imageDefinitionOptions *GalleryImageDefinitionOptions, galleryImage armcompute.GalleryImage) (*armcompute.GalleryImage, error) {
+	galleryImageClient, err := armcompute.NewGalleryImagesClient(imageDefinitionOptions.SubscriptionID, imageDefinitionOptions.AzureCreds, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	pollerResp, err := galleryImageClient.BeginCreateOrUpdate(ctx, resourceGroupName, imageGalleryName, galleryImageName, galleryImage, nil)
+	pollerResp, err := galleryImageClient.BeginCreateOrUpdate(imageDefinitionOptions.Context, imageDefinitionOptions.ResourceGroupName, imageDefinitionOptions.ImageGalleryName, imageDefinitionOptions.ImageDefinitionName, galleryImage, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := pollerResp.PollUntilDone(ctx, nil)
+	resp, err := pollerResp.PollUntilDone(imageDefinitionOptions.Context, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -674,30 +707,30 @@ func createImageDefinition(ctx context.Context, resourceGroupName string, imageG
 	return &resp.GalleryImage, nil
 }
 
-func createGalleryImageDefinitionVersion(ctx context.Context, location string, resourceGroupName string, imageGalleryName string, subscriptionID string, galleryImageName string, architecture string, bootImageID string, azureCreds azcore.TokenCredential) (string, error) {
-	galleryImageVersionClient, err := armcompute.NewGalleryImageVersionsClient(subscriptionID, azureCreds, nil)
+func createGalleryImageDefinitionVersion(imageDefinitionOptions *GalleryImageDefinitionOptions) (string, error) {
+	galleryImageVersionClient, err := armcompute.NewGalleryImageVersionsClient(imageDefinitionOptions.SubscriptionID, imageDefinitionOptions.AzureCreds, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create a gallery image version client for %s: %w", galleryImageName, err)
+		return "", fmt.Errorf("failed to create a gallery image version client for %s: %w", imageDefinitionOptions.ImageGalleryName, err)
 	}
 
 	galleryImageVersion := armcompute.GalleryImageVersion{
-		Location: to.Ptr(location),
+		Location: to.Ptr(imageDefinitionOptions.Location),
 		Properties: &armcompute.GalleryImageVersionProperties{
 			StorageProfile: &armcompute.GalleryImageVersionStorageProfile{
 				Source: &armcompute.GalleryArtifactVersionSource{
-					ID: to.Ptr(bootImageID),
+					ID: to.Ptr(imageDefinitionOptions.BootImageID),
 				},
 			},
 		},
 	}
 
-	imageVersionRsp, err := galleryImageVersionClient.BeginCreateOrUpdate(ctx, resourceGroupName, imageGalleryName, galleryImageName, "1.0.0", galleryImageVersion, nil)
+	imageVersionRsp, err := galleryImageVersionClient.BeginCreateOrUpdate(imageDefinitionOptions.Context, imageDefinitionOptions.ResourceGroupName, imageDefinitionOptions.ImageGalleryName, imageDefinitionOptions.ImageDefinitionName, "1.0.0", galleryImageVersion, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed create image definition version for %s: %w", galleryImageName, err)
+		return "", fmt.Errorf("failed create image definition version for %s: %w", imageDefinitionOptions.ImageDefinitionName, err)
 	}
-	resp, err := imageVersionRsp.PollUntilDone(ctx, nil)
+	resp, err := imageVersionRsp.PollUntilDone(imageDefinitionOptions.Context, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed waiting for image definition version creation to finish for %s: %w", galleryImageName, err)
+		return "", fmt.Errorf("failed waiting for image definition version creation to finish for %s: %w", imageDefinitionOptions.ImageDefinitionName, err)
 	}
 
 	return *resp.ID, nil

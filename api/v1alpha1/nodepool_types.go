@@ -139,6 +139,14 @@ type NodePoolSpec struct {
 	// +optional
 	NodeDrainTimeout *metav1.Duration `json:"nodeDrainTimeout,omitempty"`
 
+	// Arch is an optional parameter specifying the preferred processor architecture for the NodePool
+	// TODO Add ppc64le and s390x to enum validation once the architectures are supported
+	//
+	// +kubebuilder:default:=amd64
+	// +kubebuilder:validation:Enum=arm64;amd64
+	// +optional
+	Arch string `json:"arch,omitempty"`
+
 	// PausedUntil is a field that can be used to pause reconciliation on a resource.
 	// Either a date can be provided in RFC3339 format or a boolean. If a date is
 	// provided: reconciliation is paused on the resource until that date. If the boolean true is
