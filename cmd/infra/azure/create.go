@@ -350,7 +350,6 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 	} else {
 		imageGalleryName = "BootImageGallery_" + splitInfra[len(splitInfra)-1]
 	}
-	
 
 	gallery, err := createGallery(ctx, resourceGroupName, imageGalleryName, creds.SubscriptionID, o.Location, azureCreds, *disk.ID)
 	if err != nil {
@@ -378,7 +377,6 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 		AzureCreds:        azureCreds,
 	}
 
-	// TODO do we need limit when we cycle thru this code; like should we only do this if the current OS is arm or if the nodepool arch selected is arm or something else
 	if isManifestListImage {
 		// Verify manifest image contains current hosted architecture
 		// Right now, we only care about adding in an ARM VHD; s390/ppc won't exist in azure for a while
@@ -647,30 +645,22 @@ func createDisk(ctx context.Context, resourceGroupName string, subscriptionID st
 }
 
 func createGalleryImageDefinition(imageDefinitionOptions *GalleryImageDefinitionOptions) (string, error) {
-	galleryImageIdentifier := &armcompute.GalleryImageIdentifier{
-		Offer:     to.Ptr("RedHat"),
-		Publisher: to.Ptr("rhcos"),
-		SKU:       to.Ptr("basic"),
-	}
 	galleryImageProperties := &armcompute.GalleryImageProperties{
-		Identifier: galleryImageIdentifier,
+		Identifier: &armcompute.GalleryImageIdentifier{
+			Offer:     to.Ptr(imageDefinitionOptions.ImageDefinitionName),
+			Publisher: to.Ptr("RedHat"),
+			SKU:       to.Ptr("basic"),
+		},
+		OSType:  to.Ptr(armcompute.OperatingSystemTypesLinux),
+		OSState: to.Ptr(armcompute.OperatingSystemStateTypesGeneralized),
 	}
-
 	switch imageDefinitionOptions.Arch {
 	case ArchitectureARM64:
-		galleryImageProperties = &armcompute.GalleryImageProperties{
-			OSType:           to.Ptr(armcompute.OperatingSystemTypesLinux),
-			OSState:          to.Ptr(armcompute.OperatingSystemStateTypesGeneralized),
-			HyperVGeneration: to.Ptr(armcompute.HyperVGenerationV2),
-			Architecture:     to.Ptr(armcompute.ArchitectureArm64),
-		}
+		galleryImageProperties.HyperVGeneration = to.Ptr(armcompute.HyperVGenerationV2)
+		galleryImageProperties.Architecture = to.Ptr(armcompute.ArchitectureArm64)
 	case ArchitectureAMD64:
-		galleryImageProperties = &armcompute.GalleryImageProperties{
-			OSType:           to.Ptr(armcompute.OperatingSystemTypesLinux),
-			OSState:          to.Ptr(armcompute.OperatingSystemStateTypesGeneralized),
-			HyperVGeneration: to.Ptr(armcompute.HyperVGenerationV1),
-			Architecture:     to.Ptr(armcompute.ArchitectureX64),
-		}
+		galleryImageProperties.HyperVGeneration = to.Ptr(armcompute.HyperVGenerationV1)
+		galleryImageProperties.Architecture = to.Ptr(armcompute.ArchitectureX64)
 	default:
 		return "", fmt.Errorf("failed to create image definition. Architecture not supported for %s", imageDefinitionOptions.Arch)
 	}

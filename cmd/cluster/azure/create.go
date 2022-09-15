@@ -98,7 +98,7 @@ func applyPlatformSpecificsValues(ctx context.Context, exampleOptions *apifixtur
 		instanceType = opts.AzurePlatform.InstanceType
 	} else {
 		// Aligning with Azure IPI instance type defaults
-		switch opts.AzurePlatform.InstanceType {
+		switch opts.Arch {
 		case "amd64":
 			instanceType = "Standard_D4s_v4"
 		case "arm64":
