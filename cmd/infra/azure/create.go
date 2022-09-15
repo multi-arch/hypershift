@@ -346,7 +346,7 @@ func (o *CreateInfraOptions) Run(ctx context.Context, l logr.Logger) (*CreateInf
 	splitInfra := strings.Split(o.InfraID, "-")
 
 	if len(splitInfra) <= 0 {
-		return nil, fmt.Errorf("failed to parse infraID to generate unique identifier for BootImageGallery: %s", o.InfraID)
+		return nil, fmt.Errorf("failed to parse infraID to generate unique identifier for : %s", o.InfraID)
 	} else {
 		imageGalleryName = "BootImageGallery_" + splitInfra[len(splitInfra)-1]
 	}

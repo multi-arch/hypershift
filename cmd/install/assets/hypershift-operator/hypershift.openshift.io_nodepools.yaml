@@ -77,6 +77,15 @@ spec:
           spec:
             description: Spec is the desired behavior of the NodePool.
             properties:
+              arch:
+                default: amd64
+                description: Arch is an optional parameter specifying the preferred
+                  processor architecture for the NodePool TODO Add ppc64le and s390x
+                  to enum validation once the architectures are supported
+                enum:
+                - arm64
+                - amd64
+                type: string
               autoScaling:
                 description: Autoscaling specifies auto-scaling behavior for the NodePool.
                 properties:

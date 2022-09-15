@@ -677,6 +677,19 @@ the purpose of the change. In future we plan to propagate this field in-place.
 </tr>
 <tr>
 <td>
+<code>arch</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Arch is an optional parameter specifying the preferred processor architecture for the NodePool
+TODO Add ppc64le and s390x to enum validation once the architectures are supported</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>pausedUntil</code></br>
 <em>
 string
@@ -5691,6 +5704,19 @@ NOTE: NodeDrainTimeout is different from <code>kubectl drain --timeout</code>
 TODO (alberto): Today changing this field will trigger a recreate rolling update, which kind of defeats
 the purpose of the change. In future we plan to propagate this field in-place.
 <a href="https://github.com/kubernetes-sigs/cluster-api/issues/5880">https://github.com/kubernetes-sigs/cluster-api/issues/5880</a></p>
+</td>
+</tr>
+<tr>
+<td>
+<code>arch</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Arch is an optional parameter specifying the preferred processor architecture for the NodePool
+TODO Add ppc64le and s390x to enum validation once the architectures are supported</p>
 </td>
 </tr>
 <tr>
