@@ -549,7 +549,6 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 				nodePool := defaultNodePool(fmt.Sprintf("%s-%s", cluster.Name, availabilityZone))
 				nodePool.Spec.Platform.Azure = &hyperv1.AzureNodePoolPlatform{
 					VMSize:           o.Azure.InstanceType,
-					ImageID:          o.Azure.BootImageID,
 					DiskSizeGB:       o.Azure.DiskSizeGB,
 					AvailabilityZone: availabilityZone,
 				}
@@ -560,7 +559,6 @@ web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 			nodePool := defaultNodePool(cluster.Name)
 			nodePool.Spec.Platform.Azure = &hyperv1.AzureNodePoolPlatform{
 				VMSize:     o.Azure.InstanceType,
-				ImageID:    o.Azure.BootImageID,
 				DiskSizeGB: o.Azure.DiskSizeGB,
 			}
 			nodePools = append(nodePools, nodePool)

@@ -63,10 +63,6 @@ func generateSSHPubkey() (string, error) {
 }
 
 func bootImage(hcluster *hyperv1.HostedCluster, nodepool *hyperv1.NodePool) (string, error) {
-	if nodepool.Spec.Platform.Azure.ImageID != "" {
-		return nodepool.Spec.Platform.Azure.ImageID, nil
-	}
-
 	var bootImageGalleyID string
 	splitResourceGroupName := strings.Split(hcluster.Spec.Platform.Azure.ResourceGroupName, "-")
 	if len(splitResourceGroupName) <= 0 {
